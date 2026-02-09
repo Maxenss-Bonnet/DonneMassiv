@@ -1,0 +1,54 @@
+version: 1
+project:
+  title: Massive Data Processing
+  authors:
+    - name: John Samuel
+  copyright: '2021'
+  exclude:
+    - _build
+    - Thumbs.db
+    - .DS_Store
+    - '**.ipynb_checkpoints'
+  github: johnsamuelwrites/TDM
+  thebe:
+    binder:
+      repo: johnsamuelwrites/TDM
+      provider: github
+      url: https://mybinder.org
+      ref: master
+  exports:
+    - format: pdf
+      template: plain_latex_book
+      output: exports/book.pdf
+  toc:
+    - file: README.md
+    - title: Français
+      children:
+        - file: fr/README.md
+        - file: fr/TP0/tp0.ipynb
+        - file: fr/TP1/tp1.ipynb
+        - file: fr/TP2/tp2.ipynb
+        - file: fr/TP3/tp3.ipynb
+        - file: fr/TP4/tp4.ipynb
+        - file: fr/TP5/tp5.ipynb
+        - file: fr/TP6/tp6.ipynb
+        - file: fr/TP7/tp7.ipynb
+        - file: fr/Projet/Projet.md
+    - title: English
+      children:
+        - file: en/README.md
+        - file: en/practical0/practical0.ipynb
+        - file: en/practical1/practical1.ipynb
+        - file: en/practical2/practical2.ipynb
+        - file: en/practical3/practical3.ipynb
+        - file: en/practical4/practical4.ipynb
+        - file: en/practical5/practical5.ipynb
+        - file: en/practical6/practical6.ipynb
+        - file: en/practical7/practical7.ipynb
+        - file: en/Project/project.md
+        - file: examples/Examples.ipynb
+site:
+  options:
+    logo: massivedataprocessing.svg
+    folders: true
+  template: book-theme

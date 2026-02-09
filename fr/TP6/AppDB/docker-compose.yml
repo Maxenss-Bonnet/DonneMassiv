@@ -1,0 +1,18 @@
+services:
+  app:
+    build: ./app
+    ports:
+      - "5000:5000"
+    depends_on:
+      - bd
+
+  bd:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: livres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./init_bd:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"

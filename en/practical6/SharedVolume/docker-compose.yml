@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  uploader:
+    build:
+      context: ./uploader
+    volumes:
+      - ./shared:/shared # ← bind mount to host folder
+    depends_on:
+      - processor
+
+  processor:
+    build:
+      context: ./processor
+    volumes:
+      - ./shared:/shared # ← same shared folder

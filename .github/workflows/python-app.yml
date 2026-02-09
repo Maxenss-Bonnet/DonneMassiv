@@ -1,0 +1,94 @@
+# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Python application
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v2
+      with:
+        python-version: "3.10"
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y graphviz
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Run all Jupyter notebooks
+      run: |
+        cd en/
+        papermill installation.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../ ; cd en/practical0/
+        papermill practical0.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd en/practical1/
+        papermill practical1.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd en/practical2/
+        papermill practical2.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd en/practical3/
+        papermill practical3.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd en/practical4/
+        papermill practical4.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd en/practical5/
+        papermill practical5.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd en/practical6/
+        papermill practical6.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd en/practical7/
+        papermill practical7.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd fr/
+        papermill installation.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../ ; cd fr/TP0/
+        papermill tp0.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd fr/TP1/
+        papermill tp1.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd fr/TP2/
+        papermill tp2.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd fr/TP3/
+        papermill tp3.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd fr/TP4/
+        papermill tp4.ipynb tmp.ipynb
+        rm tmp.ipynb        
+        cd ../../ ; cd fr/TP5/
+        papermill tp5.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd fr/TP6/
+        papermill tp6.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd fr/TP7/
+        papermill tp7.ipynb tmp.ipynb
+        rm tmp.ipynb
+        cd ../../ ; cd examples/
+        papermill Examples-Visualization.ipynb tmp.ipynb
+        papermill Examples.ipynb tmp.ipynb
+        papermill decisiontree.ipynb tmp.ipynb
+        papermill mlp.ipynb tmp.ipynb
+        papermill perceptron.ipynb tmp.ipynb
+        papermill rfc.ipynb tmp.ipynb
+        papermill svm.ipynb tmp.ipynb
+        papermill recommendation.ipynb tmp.ipynb
+        rm tmp.ipynb
+
