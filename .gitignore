@@ -110,6 +110,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+tmpclaude*
 
 # Spyder project settings
 .spyderproject
@@ -139,3 +140,6 @@ en/*/*.jpg
 fr/*/*.jpg
 large_test_file.txt
 sample_logs.txt
+
+# Projet - Images téléchargées (trop volumineuses pour commit)
+fr/Projet/images/
