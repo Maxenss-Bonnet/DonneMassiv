@@ -1,0 +1,29 @@
+﻿version: "3.8"
+
+services:
+  jupyter-spark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tp5-jupyter-spark
+    ports:
+      - "8888:8888"   # Jupyter Lab
+      - "4040:4040"   # UI Spark (disponible lors de l'execution d'un job)
+    volumes:
+      # Monter le notebook
+      - ./tp5.ipynb:/app/notebooks/tp5.ipynb
+      # Monter le dossier data pour les fichiers d'entree
+      - ./data:/app/data
+      - ../../data:/app/shared_data
+      # Monter le dossier output pour les resultats
+      - ./output:/app/output
+    environment:
+      - PYTHONPATH=/app
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+    restart: unless-stopped
+    # Augmenter la memoire partagee pour Spark
+    shm_size: '2gb'
+
+volumes:
+  tp5-data:

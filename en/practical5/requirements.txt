@@ -1,0 +1,30 @@
+# Requirements for Practical 5: Apache Spark for Massive Data Processing
+
+# PySpark (must match the Spark version installed in Dockerfile)
+pyspark==3.5.3
+
+# Jupyter
+jupyterlab==4.3.4
+notebook==7.3.2
+
+# Core scientific computing
+numpy==1.26.4
+pandas==2.2.3
+
+# Visualization
+matplotlib==3.9.4
+
+# Progress bars
+tqdm==4.67.1
+
+# Utilities
+psutil==6.1.1
+
+# IPython extensions
+ipython==8.31.0
+
+# PyArrow for efficient Spark/Pandas conversion
+pyarrow==18.1.0
+
+# Additional data processing
+requests==2.32.3

@@ -1,4 +1,6 @@
-## Additional Examples
+# Data Mining Examples
+
+Some detailed examples are given here:
 
 - [Visualization](./Examples-Visualization.ipynb)
 - [General Examples](Examples.ipynb)
@@ -8,5 +10,3 @@
 - [Decision Tree](decisiontree.ipynb)
 - [Randorm Forest Classifier](rfc.ipynb)
 - [Recommendation System](recommendation.ipynb)
-- [Agglomerative Clustering](agglomerative_clustering.ipynb)
-- [DBSCAN Clustering](dbscan_clustering.ipynb)

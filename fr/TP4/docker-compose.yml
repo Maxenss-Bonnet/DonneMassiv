@@ -1,0 +1,23 @@
+﻿version: "3.8"
+
+services:
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tp4-jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      # Monter le notebook
+      - ./tp4.ipynb:/app/notebooks/tp4.ipynb
+      # Monter le dossier data pour un stockage persistant
+      - ./data:/app/data
+      # Monter le dossier output pour les resultats
+      - ./output:/app/output
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+
+volumes:
+  tp4-data:

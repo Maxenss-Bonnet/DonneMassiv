@@ -15,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Set up Python 3.10
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: "3.10"
     - name: Install dependencies
@@ -25,7 +25,7 @@ jobs:
         sudo apt-get install -y graphviz
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Run all Jupyter notebooks
+    - name: Run Jupyter notebooks (EN)
       run: |
         cd en/
         papermill installation.ipynb tmp.ipynb
@@ -45,16 +45,12 @@ jobs:
         cd ../../ ; cd en/practical4/
         papermill practical4.ipynb tmp.ipynb
         rm tmp.ipynb
-        cd ../../ ; cd en/practical5/
-        papermill practical5.ipynb tmp.ipynb
-        rm tmp.ipynb
-        cd ../../ ; cd en/practical6/
-        papermill practical6.ipynb tmp.ipynb
-        rm tmp.ipynb
-        cd ../../ ; cd en/practical7/
-        papermill practical7.ipynb tmp.ipynb
-        rm tmp.ipynb
-        cd ../../ ; cd fr/
+        # practical5 (PySpark): requires Java + Spark, runs in its own Docker container
+        # practical6 (Docker): requires Docker daemon, runs via docker-compose
+        # practical7 (Kubernetes): requires a K8s cluster
+    - name: Run Jupyter notebooks (FR)
+      run: |
+        cd fr/
         papermill installation.ipynb tmp.ipynb
         rm tmp.ipynb
         cd ../ ; cd fr/TP0/
@@ -71,17 +67,13 @@ jobs:
         rm tmp.ipynb
         cd ../../ ; cd fr/TP4/
         papermill tp4.ipynb tmp.ipynb
-        rm tmp.ipynb        
-        cd ../../ ; cd fr/TP5/
-        papermill tp5.ipynb tmp.ipynb
         rm tmp.ipynb
-        cd ../../ ; cd fr/TP6/
-        papermill tp6.ipynb tmp.ipynb
-        rm tmp.ipynb
-        cd ../../ ; cd fr/TP7/
-        papermill tp7.ipynb tmp.ipynb
-        rm tmp.ipynb
-        cd ../../ ; cd examples/
+        # TP5 (PySpark): requires Java + Spark, runs in its own Docker container
+        # TP6 (Docker): requires Docker daemon, runs via docker-compose
+        # TP7 (Kubernetes): requires a K8s cluster
+    - name: Run example notebooks
+      run: |
+        cd examples/
         papermill Examples-Visualization.ipynb tmp.ipynb
         papermill Examples.ipynb tmp.ipynb
         papermill decisiontree.ipynb tmp.ipynb
@@ -91,4 +83,3 @@ jobs:
         papermill svm.ipynb tmp.ipynb
         papermill recommendation.ipynb tmp.ipynb
         rm tmp.ipynb
-

@@ -1,10 +1,6 @@
-version: '3'
-
-volumes:
-  commun:
-
 services:
   acquisition:
     build:
       context: acquisition
+    image: tdm-acquisition:local
   

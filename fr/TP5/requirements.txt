@@ -1,0 +1,28 @@
+﻿# Requirements pour le TP5 : Apache Spark pour le traitement massif des donnees
+
+# Jupyter
+jupyter>=1.0.0
+jupyterlab>=4.0.0
+notebook>=7.0.0
+
+# Calcul scientifique de base
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Visualisation
+matplotlib>=3.7.0
+
+# Barres de progression
+tqdm>=4.65.0
+
+# Utilitaires
+psutil>=5.9.0
+
+# Extensions IPython
+ipython>=8.0.0
+
+# PyArrow pour conversion Spark/Pandas efficace
+pyarrow>=14.0.0
+
+# Traitement de donnees additionnel
+requests>=2.28.0

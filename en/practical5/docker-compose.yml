@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  jupyter-spark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: practical5-jupyter-spark
+    ports:
+      - "8888:8888"   # Jupyter Lab
+      - "4040:4040"   # Spark UI (available when Spark job is running)
+    volumes:
+      # Mount the notebook file
+      - ./practical5.ipynb:/app/notebooks/practical5.ipynb
+      # Mount data directory for input files
+      - ./data:/app/data
+      - ../../data:/app/shared_data
+      # Mount output directory for results
+      - ./output:/app/output
+    environment:
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+    restart: unless-stopped
+    # Increase shared memory for Spark
+    shm_size: '2gb'

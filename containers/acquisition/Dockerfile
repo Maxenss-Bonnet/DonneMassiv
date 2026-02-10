@@ -1,12 +1,14 @@
-FROM python:latest
+FROM python:3.12-slim
 
-MAINTAINER John Samuel
+LABEL org.opencontainers.image.authors="John Samuel"
 
-RUN mkdir /python
+RUN useradd --create-home --uid 10001 appuser
 
-ADD ./acquisition.py /python
+WORKDIR /app
 
-WORKDIR /python
+COPY acquisition.py /app/
 
-CMD [ "python3","acquisition.py"]
+USER appuser
+
+CMD ["python3", "acquisition.py"]
 
