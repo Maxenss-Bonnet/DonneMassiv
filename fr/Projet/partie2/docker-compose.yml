@@ -1,0 +1,54 @@
+version: "3.8"
+
+services:
+  # Conteneur 1 : Acquisition de données
+  acquisition:
+    build: ./acquisition
+    container_name: projet_acquisition
+    volumes:
+      - shared_data:/shared_data
+    environment:
+      - OUTPUT_DIR=/shared_data
+      - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY}
+    networks:
+      - projet_network
+
+  # Conteneur 2 : Analyse et Étiquetage
+  analysis:
+    build: ./analysis
+    container_name: projet_analysis
+    depends_on:
+      acquisition:
+        condition: service_completed_successfully
+    volumes:
+      - shared_data:/shared_data
+    environment:
+      - INPUT_DIR=/shared_data
+      - OUTPUT_DIR=/shared_data
+    networks:
+      - projet_network
+
+  # Conteneur 3 : Recommandation
+  recommendation:
+    build: ./recommendation
+    container_name: projet_recommendation
+    depends_on:
+      analysis:
+        condition: service_completed_successfully
+    volumes:
+      - shared_data:/shared_data
+    environment:
+      - INPUT_DIR=/shared_data
+      - OUTPUT_DIR=/shared_data
+    networks:
+      - projet_network
+
+# Volume partagé pour les données entre conteneurs
+volumes:
+  shared_data:
+    driver: local
+
+# Réseau pour la communication entre conteneurs
+networks:
+  projet_network:
+    driver: bridge

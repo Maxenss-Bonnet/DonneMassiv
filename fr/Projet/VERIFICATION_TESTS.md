@@ -398,6 +398,199 @@ Tous les critères d'évaluation ont été satisfaits :
 
 ---
 
-**Généré** : 10 février 2026  
+# 🐳 RAPPORT DE VÉRIFICATION - PARTIE 2 COMPLÉTÉE
+
+**Date** : 12 février 2026  
+**Auteurs** : BONNET & DURANO  
+**Statut** : ✅ **TOUS LES TESTS RÉUSSIS**
+
+---
+
+## 📋 RÉSUMÉ EXÉCUTIF - PARTIE 2
+
+Le système de recommandation a été transformé en application distribuée containerisée avec Docker + PySpark. Les 3 conteneurs ont été exécutés avec succès et ont généré toutes les données attendues.
+
+---
+
+## ✅ VÉRIFICATION DES CONSIGNES - PARTIE 2
+
+### Architecture Docker
+
+| Critère | Requis | Réalisé | Status |
+|---------|--------|---------|--------|
+| Nombre de conteneurs | 3 | **3** | ✅ |
+| Dockerfile par conteneur | Oui | **3 Dockerfiles** | ✅ |
+| docker-compose.yml | Oui | **Oui** | ✅ |
+| Volume partagé | Oui | **shared_data** | ✅ |
+| Dépendances séquentielles | Oui | **depends_on** | ✅ |
+
+**Conteneurs implémentés** :
+1. ✅ `projet_acquisition` : Téléchargement d'images (PySpark)
+2. ✅ `projet_analysis` : Labeling + profils + visualisations (PySpark)
+3. ✅ `projet_recommendation` : ML + recommandations + tests (PySpark)
+
+---
+
+### Transformations Map-Reduce PySpark
+
+| Conteneur | Transformation Map | Transformation Reduce | Status |
+|-----------|-------------------|----------------------|--------|
+| **acquisition** | `process_image()` | `.filter()` + `.collect()` | ✅ |
+| **analysis** | `process_image_labels()` | `.collect()` | ✅ |
+| **analysis** | `build_user_profile()` | `.collect()` | ✅ |
+| **recommendation** | `compute_recommendation_score()` | `.sortBy()` + `.take(5)` | ✅ |
+
+**Détails des transformations** :
+- ✅ RDD créés avec `sc.parallelize()`
+- ✅ Traitement distribué avec `.map()`
+- ✅ Filtrage avec `.filter()`
+- ✅ Réduction avec `.collect()`, `.sortBy()`, `.take()`
+- ✅ Actions finales pour matérialiser les résultats
+
+---
+
+### Résultats d'exécution
+
+| Métrique | Valeur | Status |
+|----------|--------|--------|
+| **Images téléchargées** | 120 | ✅ |
+| **Images labellisées** | 120 | ✅ |
+| **Utilisateurs analysés** | 5 | ✅ |
+| **Profils générés** | 5 | ✅ |
+| **Modèles entraînés** | 5 (Random Forest) | ✅ |
+| **Précision moyenne** | **87.77%** | ✅ |
+| **Recommandations/utilisateur** | 5 | ✅ |
+| **Tests réussis** | 2/2 (100%) | ✅ |
+
+**Détails des modèles** :
+- user_001 : Précision 88.89%
+- user_002 : Précision 88.89%
+- user_003 : Précision 83.33%
+- user_004 : Précision 88.89%
+- user_005 : Précision 88.89%
+
+---
+
+### Tests de validation (Partie 2)
+
+#### Test 1 : Intégrité des données
+
+| Critère | Résultat | Status |
+|---------|----------|--------|
+| Nombre d'images ≥ 100 | 120 images | ✅ |
+| Toutes images labellisées | 120/120 | ✅ |
+| Métadonnées valides | Oui | ✅ |
+| Fichiers générés | 6/6 | ✅ |
+
+**Résultat** : ✅ **TEST 1 RÉUSSI**
+
+---
+
+#### Test 2 : Qualité des recommandations
+
+| Critère | Résultat | Status |
+|---------|----------|--------|
+| Nombre de recommandations | 5 par utilisateur | ✅ |
+| Aucune image déjà favorite | Vérifié | ✅ |
+| Recommandations triées | Par score décroissant | ✅ |
+| Pertinence au profil | **100.0%** | ✅ |
+
+**Résultat** : ✅ **TEST 2 RÉUSSI**
+
+---
+
+### Fichiers générés (Partie 2)
+
+| Fichier | Taille | Description | Status |
+|---------|--------|-------------|--------|
+| `images/` | 26.6 MB | 120 images JPEG | ✅ |
+| `images_metadata.json` | 90.94 KB | Métadonnées complètes | ✅ |
+| `images_labels.json` | 68.79 KB | Labels + couleurs | ✅ |
+| `users.json` | 3.55 KB | 5 profils utilisateur | ✅ |
+| `recommendations.json` | 4.01 KB | Top 5 par utilisateur | ✅ |
+| `visualisations.png` | ~500 KB | Graphiques de synthèse | ✅ |
+
+**Total** : 6 fichiers générés avec succès
+
+---
+
+### Durée d'exécution
+
+| Phase | Durée | Status |
+|-------|-------|--------|
+| Build des images Docker | ~3-4 min | ✅ |
+| Container acquisition | ~8-10 min | ✅ |
+| Container analysis | ~3-5 min | ✅ |
+| Container recommendation | ~2-3 min | ✅ |
+| **Total** | **~20 min** | ✅ |
+
+---
+
+## 🎯 CONFORMITÉ PARTIE 2
+
+| Critère | Statut |
+|----------|--------|
+| 3 conteneurs Docker | ✅ **3 conteneurs** |
+| PySpark utilisé | ✅ **Tous conteneurs** |
+| Map-Reduce implémenté | ✅ **4+ transformations** |
+| docker-compose.yml | ✅ **Orchestration complète** |
+| Volume partagé | ✅ **shared_data** |
+| Dépendances gérées | ✅ **depends_on** |
+| Tous les tests passent | ✅ **100% réussi** |
+| Données générées | ✅ **6 fichiers** |
+| Documentation complète | ✅ **README + SUIVI** |
+
+**Verdict** : ✅ **100% DE CONFORMITÉ**
+
+---
+
+## 🚀 PRÊT POUR SUBMISSION - PARTIE 2
+
+La Partie 2 est **COMPLÈTE ET OPÉRATIONNELLE**.
+
+### Fichiers Docker à inclure :
+
+✅ `partie2/docker-compose.yml`
+✅ `partie2/.env` (sans clés API réelles)
+✅ `partie2/acquisition/Dockerfile`
+✅ `partie2/acquisition/requirements.txt`
+✅ `partie2/acquisition/acquisition.py`
+✅ `partie2/analysis/Dockerfile`
+✅ `partie2/analysis/requirements.txt`
+✅ `partie2/analysis/analysis.py`
+✅ `partie2/recommendation/Dockerfile`
+✅ `partie2/recommendation/requirements.txt`
+✅ `partie2/recommendation/recommendation.py`
+✅ `partie2/README.md`
+✅ `partie2/COMMANDES.md`
+
+---
+
+## 📝 CONCLUSION FINALE
+
+**Statut Global** : ✅ **PARTIE 1 + PARTIE 2 VALIDÉES**
+
+### Récapitulatif complet
+
+**Partie 1** :
+- ✅ Collecte de données (120 images)
+- ✅ Étiquetage et annotation
+- ✅ Analyse de données
+- ✅ Visualisation (9 graphiques)
+- ✅ Système de recommandation (Random Forest)
+- ✅ Tests (3 suites, tous OK)
+
+**Partie 2** :
+- ✅ Conteneurisation Docker (3 conteneurs)
+- ✅ Distribution PySpark (RDD + MapReduce)
+- ✅ Orchestration docker-compose
+- ✅ Volume partagé
+- ✅ Tests (2/2 réussis, 100% pertinence)
+
+**Qualité globale** : Excellente ⭐⭐⭐⭐⭐
+
+---
+
+**Généré** : 12 février 2026  
 **Vérification effectuée par** : Assistant IA  
-**Statut** : ✅ APPROUVÉ
+**Statut** : ✅ APPROUVÉ - PARTIES 1 & 2

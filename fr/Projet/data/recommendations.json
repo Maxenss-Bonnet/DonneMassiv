@@ -1,0 +1,137 @@
+{
+  "user_001": [
+    {
+      "filename": "image_005.jpg",
+      "score": 0.48,
+      "reason": "Correspond à vos préférences : couleurs gris, vert + tags nature"
+    },
+    {
+      "filename": "image_038.jpg",
+      "score": 0.48,
+      "reason": "Correspond à vos préférences : couleurs gris + orientation paysage + tags photography"
+    },
+    {
+      "filename": "image_060.jpg",
+      "score": 0.44,
+      "reason": "Correspond à vos préférences : couleurs rouge + orientation paysage + tags green"
+    },
+    {
+      "filename": "image_094.jpg",
+      "score": 0.39125,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris + orientation paysage + tags brown"
+    },
+    {
+      "filename": "image_082.jpg",
+      "score": 0.39,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris + orientation paysage"
+    }
+  ],
+  "user_002": [
+    {
+      "filename": "image_104.jpg",
+      "score": 0.47,
+      "reason": "Correspond à vos préférences : couleurs bleu"
+    },
+    {
+      "filename": "image_068.jpg",
+      "score": 0.35,
+      "reason": "Correspond à vos préférences : couleurs gris, bleu + orientation paysage"
+    },
+    {
+      "filename": "image_114.jpg",
+      "score": 0.35,
+      "reason": "Correspond à vos préférences : couleurs gris, noir"
+    },
+    {
+      "filename": "image_015.jpg",
+      "score": 0.32,
+      "reason": "Correspond à vos préférences : couleurs gris, noir"
+    },
+    {
+      "filename": "image_100.jpg",
+      "score": 0.3,
+      "reason": "Correspond à vos préférences : couleurs bleu, noir + tags technology"
+    }
+  ],
+  "user_003": [
+    {
+      "filename": "image_107.jpg",
+      "score": 0.47,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris, marron + orientation portrait"
+    },
+    {
+      "filename": "image_112.jpg",
+      "score": 0.46,
+      "reason": "Correspond à vos préférences : couleurs rouge"
+    },
+    {
+      "filename": "image_102.jpg",
+      "score": 0.39,
+      "reason": "Correspond à vos préférences : couleurs rouge + orientation portrait"
+    },
+    {
+      "filename": "image_043.jpg",
+      "score": 0.32,
+      "reason": "Correspond à vos préférences : couleurs rouge, marron + orientation portrait + tags food"
+    },
+    {
+      "filename": "image_077.jpg",
+      "score": 0.32,
+      "reason": "Correspond à vos préférences : couleurs rouge + orientation portrait"
+    }
+  ],
+  "user_004": [
+    {
+      "filename": "image_111.jpg",
+      "score": 0.42111111111111116,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris + tags art"
+    },
+    {
+      "filename": "image_075.jpg",
+      "score": 0.34,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris"
+    },
+    {
+      "filename": "image_052.jpg",
+      "score": 0.26,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris, bleu + orientation portrait"
+    },
+    {
+      "filename": "image_002.jpg",
+      "score": 0.25,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris + orientation portrait"
+    },
+    {
+      "filename": "image_015.jpg",
+      "score": 0.24,
+      "reason": "Correspond à vos préférences : couleurs gris + orientation portrait"
+    }
+  ],
+  "user_005": [
+    {
+      "filename": "image_059.jpg",
+      "score": 0.48,
+      "reason": "Correspond à vos préférences : couleurs gris, rouge + tags food"
+    },
+    {
+      "filename": "image_036.jpg",
+      "score": 0.4,
+      "reason": "Correspond à vos préférences : couleurs gris, noir"
+    },
+    {
+      "filename": "image_115.jpg",
+      "score": 0.31,
+      "reason": "Correspond à vos préférences : couleurs rouge + orientation portrait + tags art"
+    },
+    {
+      "filename": "image_109.jpg",
+      "score": 0.29,
+      "reason": "Correspond à vos préférences : couleurs gris, rouge, noir + orientation portrait + tags art"
+    },
+    {
+      "filename": "image_103.jpg",
+      "score": 0.2875,
+      "reason": "Correspond à vos préférences : couleurs gris, rouge, noir + tags art"
+    }
+  ]
+}
