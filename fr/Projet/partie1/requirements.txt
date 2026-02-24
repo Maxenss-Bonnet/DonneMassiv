@@ -1,0 +1,27 @@
+# Dépendances Python - Partie 1 (Notebook Jupyter)
+# Version : Février 2026
+
+# API et requêtes HTTP
+requests==2.32.3
+
+# Traitement d'images
+Pillow==10.4.0
+
+# Calcul numérique
+numpy==1.26.4
+
+# Analyse de données
+pandas==2.2.3
+
+# Machine Learning
+scikit-learn==1.5.2
+
+# Visualisation
+matplotlib==3.9.2
+
+# Variables d'environnement
+python-dotenv==1.0.1
+
+# Notebook Jupyter (optionnel si déjà installé)
+# jupyter==1.1.1
+# jupyterlab==4.2.5

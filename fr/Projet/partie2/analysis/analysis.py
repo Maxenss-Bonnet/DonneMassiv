@@ -389,6 +389,23 @@ def main():
         print(f"\n✅ Étiquetage terminé : {len(labels)} images annotées")
         print(f"💾 Labels sauvegardés : {LABELS_FILE}")
         
+        # === Analyse des tags globaux : FlatMap + ReduceByKey ===
+        # FlatMap : aplatit les listes de tags de chaque image en paires (tag, 1)
+        # ReduceByKey : agrège pour compter les occurrences par tag
+        print("\n🏷️ Analyse des tags globaux (flatMap + reduceByKey)...")
+        tags_rdd = sc.parallelize(list(labels.values()))
+        tag_counts_rdd = (
+            tags_rdd
+            .flatMap(lambda label: label["tags"])
+            .map(lambda tag: (tag, 1))
+            .reduceByKey(lambda a, b: a + b)
+            .sortBy(lambda x: x[1], ascending=False)
+        )
+        top_tags = tag_counts_rdd.take(10)
+        print("📊 Top 10 tags les plus fréquents :")
+        for tag, count in top_tags:
+            print(f"   - {tag} : {count}")
+        
         # === Tâche 3 : Analyse ===
         print("\n👥 TÂCHE 3 : ANALYSE DES UTILISATEURS\n")
         

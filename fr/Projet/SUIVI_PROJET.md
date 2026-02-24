@@ -2,7 +2,42 @@
 
 **Auteurs** : BONNET & DURANO
 **Date de création** : 10 février 2026
-**Dernière mise à jour** : 10 février 2026
+**Dernière mise à jour** : 24 février 2026
+
+---
+
+## 🗂️ Réorganisation du 24 février 2026
+
+Le projet a été réorganisé pour séparer clairement Partie 1 et Partie 2 :
+
+```
+fr/Projet/
+├── partie1/                      # ← NOUVEAU (anciennement à la racine)
+│   ├── BONNET_DURANO.ipynb       # ← déplacé depuis fr/Projet/
+│   ├── data/                     # ← déplacé depuis fr/Projet/data/
+│   ├── images/                   # ← déplacé depuis fr/Projet/images/
+│   ├── README.md                 # ← NOUVEAU
+│   ├── requirements.txt          # ← NOUVEAU
+│   ├── COMMANDES.md              # ← NOUVEAU
+│   ├── .gitignore                # ← NOUVEAU
+│   ├── .env                      # ← copié
+│   └── .env.example              # ← copié
+├── partie2/                      # inchangé
+│   ├── acquisition/
+│   ├── analysis/
+│   └── recommendation/
+├── SUIVI_PROJET.md               # ce fichier (reste à la racine)
+└── VERIFICATION_TESTS.md         # reste à la racine
+```
+
+### Corrections apportées
+
+| Fichier | Correction |
+|---------|-----------|
+| `partie1/BONNET_DURANO.ipynb` | Date mise à jour : 2024 → Février 2026 |
+| `partie1/BONNET_DURANO.ipynb` | `rgb_to_name()` : fallback amélioré pour distinguer rouge vif et marron/kaki |
+| `partie1/BONNET_DURANO.ipynb` | `extract_exif_data()` : note docstring expliquant pourquoi EXIF = {} sur Unsplash |
+| `partie2/analysis/analysis.py` | Ajout bloc `flatMap` + `reduceByKey` pour fréquence des tags (consigne explicite) |
 
 ---
 
@@ -10,11 +45,11 @@
 
 ### Partie 1 : Système de Recommandation (Notebook)
 - **Statut général** : ✅ Code complet
-- **Exécution** : ⏳ À tester
+- **Exécution** : ⏳ À tester (rouvrir depuis `partie1/`)
 - **Rapport** : ❌ À rédiger
 
 ### Partie 2 : Conteneurisation et Distribution
-- **Statut** : ✅ Complète
+- **Statut** : ✅ Complète (+ flatMap/reduceByKey ajoutés)
 - **Exécution** : ⏳ À tester
 - **Rapport** : ❌ À mettre à jour
 
