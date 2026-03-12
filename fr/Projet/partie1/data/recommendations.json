@@ -1,137 +1,137 @@
 {
   "user_001": [
     {
-      "filename": "image_118.jpg",
-      "score": 0.32,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge, vert"
-    },
-    {
-      "filename": "image_076.jpg",
-      "score": 0.27,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge, vert + orientation portrait + tags animals"
-    },
-    {
       "filename": "image_003.jpg",
-      "score": 0.22,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge + orientation portrait + tags nature"
-    },
-    {
-      "filename": "image_096.jpg",
-      "score": 0.22,
-      "reason": "Correspond à vos préférences : couleurs gris"
+      "score": 0.29,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris + tags nature"
     },
     {
       "filename": "image_067.jpg",
-      "score": 0.2,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge + tags brown, animals"
+      "score": 0.29,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris + orientation paysage + tags animals, brown"
+    },
+    {
+      "filename": "image_066.jpg",
+      "score": 0.28,
+      "reason": "Correspond à vos préférences : couleurs rouge + orientation paysage + tags animals, brown"
+    },
+    {
+      "filename": "image_110.jpg",
+      "score": 0.27,
+      "reason": "Correspond à vos préférences : couleurs rouge, vert"
+    },
+    {
+      "filename": "image_059.jpg",
+      "score": 0.23,
+      "reason": "Correspond à vos préférences : couleurs rouge + orientation paysage"
     }
   ],
   "user_002": [
     {
-      "filename": "image_071.jpg",
-      "score": 0.47,
-      "reason": "Correspond à vos préférences : couleurs gris, noir + orientation paysage"
-    },
-    {
-      "filename": "image_083.jpg",
-      "score": 0.3775,
-      "reason": "Correspond à vos préférences : couleurs gris, bleu, noir + orientation paysage + tags technology"
-    },
-    {
-      "filename": "image_023.jpg",
-      "score": 0.37666666666666665,
-      "reason": "Correspond à vos préférences : couleurs gris, bleu + orientation paysage + tags architecture, building"
-    },
-    {
-      "filename": "image_027.jpg",
-      "score": 0.36333333333333334,
-      "reason": "Correspond à vos préférences : couleurs gris, bleu, noir + orientation paysage + tags architecture"
-    },
-    {
-      "filename": "image_068.jpg",
-      "score": 0.34,
-      "reason": "Correspond à vos préférences : couleurs gris, noir + orientation paysage"
-    }
-  ],
-  "user_003": [
-    {
-      "filename": "image_107.jpg",
+      "filename": "image_097.jpg",
       "score": 0.49,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge, marron + orientation portrait"
+      "reason": "Correspond à vos préférences : couleurs bleu, noir + orientation paysage + tags technology"
+    },
+    {
+      "filename": "image_100.jpg",
+      "score": 0.44,
+      "reason": "Correspond à vos préférences : couleurs bleu, noir + tags technology"
     },
     {
       "filename": "image_083.jpg",
       "score": 0.42,
-      "reason": "Correspond à vos préférences : couleurs gris, marron + tags black"
+      "reason": "Correspond à vos préférences : couleurs bleu, gris, noir + orientation paysage + tags gray, technology"
     },
     {
-      "filename": "image_072.jpg",
-      "score": 0.37,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge + orientation portrait"
+      "filename": "image_038.jpg",
+      "score": 0.4025,
+      "reason": "Correspond à vos préférences : couleurs gris + orientation paysage + tags architecture, building"
     },
     {
-      "filename": "image_110.jpg",
-      "score": 0.35,
-      "reason": "Correspond à vos préférences : couleurs rouge + orientation portrait"
-    },
+      "filename": "image_114.jpg",
+      "score": 0.34,
+      "reason": "Correspond à vos préférences : couleurs gris, noir"
+    }
+  ],
+  "user_003": [
     {
-      "filename": "image_009.jpg",
-      "score": 0.28,
+      "filename": "image_074.jpg",
+      "score": 0.52,
       "reason": "Correspond à vos préférences : couleurs rouge, marron"
+    },
+    {
+      "filename": "image_015.jpg",
+      "score": 0.43,
+      "reason": "Correspond à vos préférences : couleurs gris + orientation portrait"
+    },
+    {
+      "filename": "image_046.jpg",
+      "score": 0.41,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris, marron + orientation portrait + tags food, black"
+    },
+    {
+      "filename": "image_098.jpg",
+      "score": 0.39,
+      "reason": "Correspond à vos préférences : couleurs rouge, marron"
+    },
+    {
+      "filename": "image_064.jpg",
+      "score": 0.33,
+      "reason": "Correspond à vos préférences : couleurs rouge, marron + orientation portrait"
     }
   ],
   "user_004": [
     {
-      "filename": "image_112.jpg",
-      "score": 0.6,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge + orientation paysage + tags art"
-    },
-    {
-      "filename": "image_024.jpg",
-      "score": 0.33,
-      "reason": "Correspond à vos préférences : couleurs gris"
+      "filename": "image_003.jpg",
+      "score": 0.44,
+      "reason": "Correspond à vos préférences : couleurs rouge, gris"
     },
     {
       "filename": "image_060.jpg",
-      "score": 0.3233333333333333,
+      "score": 0.44,
       "reason": "Correspond à vos préférences : couleurs rouge"
     },
     {
-      "filename": "image_003.jpg",
-      "score": 0.3,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge"
+      "filename": "image_038.jpg",
+      "score": 0.37,
+      "reason": "Correspond à vos préférences : couleurs gris + orientation paysage"
     },
     {
-      "filename": "image_038.jpg",
-      "score": 0.27,
-      "reason": "Correspond à vos préférences : couleurs gris + orientation paysage"
+      "filename": "image_092.jpg",
+      "score": 0.25,
+      "reason": "Correspond à vos préférences : couleurs bleu + orientation paysage"
+    },
+    {
+      "filename": "image_099.jpg",
+      "score": 0.25,
+      "reason": "Correspond à vos préférences : orientation paysage"
     }
   ],
   "user_005": [
     {
-      "filename": "image_003.jpg",
-      "score": 0.33,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge"
+      "filename": "image_069.jpg",
+      "score": 0.3,
+      "reason": "Correspond à vos préférences : couleurs bleu, gris, rouge"
     },
     {
-      "filename": "image_012.jpg",
-      "score": 0.26,
-      "reason": "Correspond à vos préférences : couleurs gris, rouge, noir"
+      "filename": "image_051.jpg",
+      "score": 0.285,
+      "reason": "Correspond à vos préférences : couleurs gris, rouge + orientation paysage"
     },
     {
-      "filename": "image_059.jpg",
-      "score": 0.26,
-      "reason": "Correspond à vos préférences : couleurs rouge + orientation paysage"
+      "filename": "image_031.jpg",
+      "score": 0.28,
+      "reason": "Correspond à vos préférences : couleurs gris + orientation paysage + tags architecture"
     },
     {
-      "filename": "image_104.jpg",
-      "score": 0.26,
-      "reason": "Correspond à vos préférences : tags art"
+      "filename": "image_061.jpg",
+      "score": 0.28,
+      "reason": "Correspond à vos préférences : couleurs gris"
     },
     {
-      "filename": "image_096.jpg",
-      "score": 0.23,
-      "reason": "Correspond à vos préférences : couleurs gris + orientation paysage + tags technology"
+      "filename": "image_100.jpg",
+      "score": 0.28,
+      "reason": "Correspond à vos préférences : couleurs bleu + tags technology"
     }
   ]
 }
