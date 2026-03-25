@@ -151,6 +151,28 @@ def process_image(item: tuple) -> tuple:
         return (None, None)
 
 
+def validate_image(item: tuple) -> bool:
+    """
+    Validation (étape 2 du graphe théorique, effectuée en parallèle par Spark).
+    Vérifie que l'image téléchargée est valide (non nulle, dimensions correctes).
+    """
+    filename, metadata = item
+    if filename is None or metadata is None:
+        return False
+    
+    # Vérification stricte
+    is_valid = (
+        metadata.get("width", 0) > 0 and 
+        metadata.get("height", 0) > 0 and 
+        metadata.get("file_size_kb", 0) > 0
+    )
+    
+    if not is_valid:
+        print(f"❌ Validation échouée pour {filename} (dimensions ou poids invalides)")
+        
+    return is_valid
+
+
 def main():
     """
     Point d'entrée principal avec traitement PySpark distribué.
@@ -181,11 +203,12 @@ def main():
         images_rdd = sc.parallelize(all_images_data)
         metadata_rdd = images_rdd.map(process_image)
         
-        # Filter : retirer les images qui ont échoué (None, None)
-        successful_rdd = metadata_rdd.filter(lambda x: x[0] is not None)
+        # Validation formelle : Filtrer les images en parallèle avec Spark
+        print("\n🛡️ Validation des données images avec PySpark...")
+        valid_rdd = metadata_rdd.filter(validate_image)
         
-        # Collect : récupérer tous les résultats
-        results = successful_rdd.collect()
+        # Collect : récupérer tous les résultats valides
+        results = valid_rdd.collect()
         
         # Convertir en dictionnaire
         all_metadata = {filename: metadata for filename, metadata in results}

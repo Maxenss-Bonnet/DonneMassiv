@@ -61,6 +61,7 @@ Le systeme est compose de 7 taches interconnectees :
 ![Architecture](../../images/Project-Architecture.png "Architecture")
 
 ---
+## Projet partie 1
 
 ## Projet partie 1
 
