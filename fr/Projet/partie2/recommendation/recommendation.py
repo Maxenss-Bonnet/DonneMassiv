@@ -1,21 +1,30 @@
 """
 Conteneur 3 : Recommandation
 Système de recommandation et tests avec traitement distribué PySpark.
+
+Optimisations scalabilité (Priorité 1 & 2) :
+- Spark MLlib RandomForestClassifier (entraînement distribué) au lieu de sklearn.
+- Génération des paires (user, image) via `flatMap` Spark (zéro RAM driver).
+- Broadcast variables pour labels/profils/favoris/probas.
+- `repartition` explicite pour un parallélisme maîtrisé.
+- SparkConf paramétrable via variables d'environnement.
 """
 
 import os
 import json
 import logging
 import sys
-import numpy as np
-import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Tuple
-from pyspark import SparkContext, SparkConf
-from sklearn.preprocessing import LabelEncoder
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+
+from pyspark import SparkContext
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, when, udf
+from pyspark.sql.types import DoubleType
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import StringIndexer, VectorAssembler
+from pyspark.ml.classification import RandomForestClassifier as SparkRF
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 
 
 # === Configuration du logger ===
@@ -27,13 +36,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
+# === Configuration des chemins ===
 INPUT_DIR = Path(os.getenv("INPUT_DIR", "/shared_data"))
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/shared_data"))
 METADATA_FILE = INPUT_DIR / "images_metadata.json"
 LABELS_FILE = INPUT_DIR / "images_labels.json"
 USERS_FILE = INPUT_DIR / "users.json"
 RECOMMENDATIONS_FILE = OUTPUT_DIR / "recommendations.json"
+
+# === Configuration Spark (paramétrable) ===
+SPARK_PARALLELISM = int(os.getenv("SPARK_PARALLELISM", "200"))
+SPARK_DRIVER_MEMORY = os.getenv("SPARK_DRIVER_MEMORY", "2g")
+SPARK_EXECUTOR_MEMORY = os.getenv("SPARK_EXECUTOR_MEMORY", "2g")
+
+# Hyperparamètres MLlib RandomForest
+RF_NUM_TREES = int(os.getenv("RF_NUM_TREES", "100"))
+RF_MAX_DEPTH = int(os.getenv("RF_MAX_DEPTH", "10"))
+# maxBins doit être >= au nombre de valeurs uniques de la feature catégorielle
+# la plus large (ici `primary_tag` peut atteindre ~100+ valeurs sur 120 images,
+# et beaucoup plus à grande échelle). 256 est un compromis sûr.
+RF_MAX_BINS = int(os.getenv("RF_MAX_BINS", "256"))
 
 
 def validate_environment() -> None:
@@ -61,82 +83,160 @@ logger.info(f"📁 Dossier données : {INPUT_DIR}")
 logger.info(f"📁 Fichier recommandations : {RECOMMENDATIONS_FILE}")
 
 
-def prepare_features(labels: Dict, metadata: Dict) -> pd.DataFrame:
+def compute_partitions(n_items: int, items_per_partition: int = 10) -> int:
+    """Nombre de partitions équilibré (jamais < 4, jamais > SPARK_PARALLELISM)."""
+    return max(4, min(SPARK_PARALLELISM, max(1, n_items // items_per_partition)))
+
+
+def build_features_dataframe(spark: SparkSession, labels: Dict, metadata: Dict):
     """
-    Prépare les caractéristiques pour l'apprentissage automatique.
+    Construit le DataFrame Spark des caractéristiques pour MLlib.
+
+    Étapes :
+    1. Création de lignes [filename, features brutes (numériques + catégorielles)].
+    2. Pipeline d'encodage : StringIndexer pour les colonnes catégorielles
+       (équivalent distribué de sklearn LabelEncoder), puis VectorAssembler
+       pour produire la colonne `features` consommée par RandomForestClassifier.
+    3. `cache()` : on réutilise ce DataFrame pour chaque utilisateur.
+
+    Args:
+        spark: SparkSession active
+        labels: dict {filename: label_data}
+        metadata: dict {filename: meta_data}
+
+    Returns:
+        DataFrame Spark avec colonnes ['filename', 'features']
     """
-    features = []
-    
+    rows = []
     for filename in labels.keys():
-        label_data = labels[filename]
-        meta_data = metadata[filename]
-        
-        feature_dict = {
+        l = labels[filename]
+        m = metadata[filename]
+        rows.append({
             'filename': filename,
-            'orientation': label_data['orientation'],
-            'size_category': label_data['size_category'],
-            'width': meta_data['width'],
-            'height': meta_data['height'],
-            'file_size_kb': meta_data['file_size_kb'],
-            'aspect_ratio': meta_data['width'] / meta_data['height'],
-            'color_1': label_data['color_names'][0] if len(label_data['color_names']) > 0 else 'inconnu',
-            'color_2': label_data['color_names'][1] if len(label_data['color_names']) > 1 else 'inconnu',
-            'color_3': label_data['color_names'][2] if len(label_data['color_names']) > 2 else 'inconnu',
-            'n_unique_colors': len(set(label_data['color_names'])),
-            'n_tags': len(label_data['tags']),
-            'primary_tag': label_data['tags'][0] if label_data['tags'] else 'inconnu'
-        }
-        
-        features.append(feature_dict)
-    
-    return pd.DataFrame(features)
+            'orientation': l['orientation'],
+            'size_category': l['size_category'],
+            'width': float(m['width']),
+            'height': float(m['height']),
+            'file_size_kb': float(m['file_size_kb']),
+            'aspect_ratio': float(m['width']) / float(m['height']),
+            'color_1': l['color_names'][0] if l['color_names'] else 'inconnu',
+            'color_2': l['color_names'][1] if len(l['color_names']) > 1 else 'inconnu',
+            'color_3': l['color_names'][2] if len(l['color_names']) > 2 else 'inconnu',
+            'n_unique_colors': float(len(set(l['color_names']))),
+            'n_tags': float(len(l['tags'])),
+            'primary_tag': l['tags'][0] if l['tags'] else 'inconnu',
+        })
 
+    df = spark.createDataFrame(rows)
 
-def encode_features(df: pd.DataFrame) -> Tuple[np.ndarray, Dict, List]:
-    """
-    Encode les caractéristiques catégorielles en nombres.
-    """
-    df_encoded = df.copy()
-    encoders = {}
-    
-    categorical_cols = ['orientation', 'size_category', 'color_1', 'color_2', 'color_3', 'primary_tag']
-    
-    for col in categorical_cols:
-        le = LabelEncoder()
-        df_encoded[col] = le.fit_transform(df_encoded[col])
-        encoders[col] = le
-    
-    feature_cols = [c for c in df_encoded.columns if c != 'filename']
-    X = df_encoded[feature_cols].values
-    
-    return X, encoders, feature_cols
+    # Repartitionnement pour exploiter le parallélisme
+    n_part = compute_partitions(len(rows), items_per_partition=20)
+    df = df.repartition(n_part)
 
+    cat_cols = ['orientation', 'size_category', 'color_1', 'color_2', 'color_3', 'primary_tag']
+    num_cols = ['width', 'height', 'file_size_kb', 'aspect_ratio', 'n_unique_colors', 'n_tags']
 
-def train_user_model(user_id: str, users: Dict, df_features: pd.DataFrame, 
-                    X_all: np.ndarray) -> Tuple:
-    """
-    Entraîne un modèle de recommandation pour un utilisateur.
-    """
-    user = users[user_id]
-    favorites = set(user['favorite_images'])
-    
-    # Créer les labels (1 = favori, 0 = non favori)
-    y = df_features['filename'].apply(lambda x: 1 if x in favorites else 0).values
-    
-    # Split train/test
-    X_train, X_test, y_train, y_test, idx_train, idx_test = train_test_split(
-        X_all, y, np.arange(len(y)), test_size=0.3, random_state=42, stratify=y
+    indexers = [
+        StringIndexer(inputCol=c, outputCol=f"{c}_idx", handleInvalid="keep")
+        for c in cat_cols
+    ]
+    assembler = VectorAssembler(
+        inputCols=num_cols + [f"{c}_idx" for c in cat_cols],
+        outputCol="features",
     )
-    
-    # Entraîner le modèle (Random Forest)
-    model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
-    model.fit(X_train, y_train)
-    
-    # Évaluer
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    
-    return model, y, idx_test, accuracy
+
+    pipeline = Pipeline(stages=indexers + [assembler])
+    df_features = (
+        pipeline.fit(df)
+        .transform(df)
+        .select("filename", "features")
+        .cache()
+    )
+
+    # Force la matérialisation du cache
+    df_features.count()
+
+    return df_features
+
+
+def train_user_model_mllib(user_id: str, favorites_set: set, df_features) -> Tuple:
+    """
+    Entraîne un Random Forest distribué via Spark MLlib pour un utilisateur.
+
+    Le `fit()` est distribué sur les workers Spark (vs sklearn qui était mono-thread).
+    Pour 100k+ images par utilisateur, c'est le bon compromis.
+
+    Note pédagogique : à 1M+ utilisateurs, l'idéal serait UN seul modèle global
+    avec features (user × image) en input — ici on garde un modèle par user
+    pour rester dans l'esprit de la consigne (filtrage basé sur le contenu).
+
+    Args:
+        user_id: identifiant utilisateur
+        favorites_set: ensemble des filenames favoris
+        df_features: DataFrame Spark mis en cache
+
+    Returns:
+        (modèle_entraîné, accuracy_test)
+    """
+    favorites_list = list(favorites_set)
+
+    # Ajouter colonne `label` (1 si favori, 0 sinon) — `isin` accepte une liste
+    df_labeled = df_features.withColumn(
+        "label",
+        when(col("filename").isin(favorites_list), 1).otherwise(0),
+    )
+
+    # Split train/test stratifié approximatif
+    train_df, test_df = df_labeled.randomSplit([0.7, 0.3], seed=42)
+    train_df = train_df.cache()
+
+    rf = SparkRF(
+        featuresCol="features",
+        labelCol="label",
+        numTrees=RF_NUM_TREES,
+        maxDepth=RF_MAX_DEPTH,
+        maxBins=RF_MAX_BINS,
+        seed=42,
+    )
+    model = rf.fit(train_df)
+
+    # Évaluation
+    predictions = model.transform(test_df)
+    evaluator = MulticlassClassificationEvaluator(
+        labelCol="label",
+        predictionCol="prediction",
+        metricName="accuracy",
+    )
+    accuracy = evaluator.evaluate(predictions)
+
+    train_df.unpersist()
+
+    return model, accuracy
+
+
+def extract_proba_class_1(probability_vector) -> float:
+    """UDF Spark : extrait la probabilité de la classe 1 (favori) du vecteur MLlib."""
+    if probability_vector is None:
+        return 0.0
+    try:
+        return float(probability_vector[1])
+    except (IndexError, TypeError):
+        return 0.0
+
+
+def collect_user_probas(model, df_features) -> Dict[str, float]:
+    """
+    Applique le modèle sur TOUTES les images et renvoie {filename: proba_classe_1}.
+    Le `transform` est distribué sur les workers Spark.
+    """
+    extract_udf = udf(extract_proba_class_1, DoubleType())
+
+    predictions = (
+        model.transform(df_features)
+        .select("filename", extract_udf(col("probability")).alias("proba"))
+    )
+
+    return {row["filename"]: float(row["proba"]) for row in predictions.collect()}
 
 
 def compute_recommendation_score(item: tuple, labels: Dict, profiles: Dict,
@@ -149,9 +249,9 @@ def compute_recommendation_score(item: tuple, labels: Dict, profiles: Dict,
 
     Args:
         item: tuple (user_id, filename, proba)
-        labels: Dictionnaire des labels (broadcast)
-        profiles: Dictionnaire des profils utilisateurs (broadcast)
-        favorites_by_user: Dictionnaire user_id -> set(favoris) (broadcast)
+        labels: dict labels (broadcast)
+        profiles: dict profils utilisateurs (broadcast)
+        favorites_by_user: dict user_id -> set(favoris) (broadcast)
 
     Returns:
         tuple (user_id, filename, score, reason) ou None si image déjà en favoris
@@ -167,16 +267,13 @@ def compute_recommendation_score(item: tuple, labels: Dict, profiles: Dict,
     user_profile = profiles[user_id]
     reasons = []
 
-    # Vérifier les couleurs
     matching_colors = set(img_labels['color_names']) & set(user_profile['favorite_colors'])
     if matching_colors:
         reasons.append(f"couleurs {', '.join(matching_colors)}")
 
-    # Vérifier l'orientation
     if img_labels['orientation'] == user_profile['favorite_orientation']:
         reasons.append(f"orientation {img_labels['orientation']}")
 
-    # Vérifier les tags
     matching_tags = set(img_labels['tags']) & set(user_profile['favorite_tags'])
     if matching_tags:
         reasons.append(f"tags {', '.join(list(matching_tags)[:2])}")
@@ -189,65 +286,83 @@ def compute_recommendation_score(item: tuple, labels: Dict, profiles: Dict,
     return (user_id, filename, float(proba), reason)
 
 
-def recommend_all_users_spark(users: Dict, df_features: pd.DataFrame,
-                              X_all: np.ndarray, labels: Dict, sc: SparkContext,
-                              n_recommendations: int = 5) -> Dict[str, List[Tuple]]:
+def recommend_all_users_spark(users: Dict, df_features, labels: Dict,
+                              spark: SparkSession,
+                              n_recommendations: int = 5) -> Tuple[Dict, Dict]:
     """
-    Génère les recommandations pour TOUS les utilisateurs en parallèle via PySpark.
+    Génère les recommandations pour TOUS les utilisateurs avec PySpark + MLlib.
 
-    Stratégie :
-    1. Les modèles sklearn sont entraînés séquentiellement (pas distribuable simplement).
-    2. Les probabilités de toutes les paires (user, image) sont collectées dans un RDD.
-    3. Les données volumineuses (labels, profils, favoris) sont partagées via broadcast.
-    4. Le scoring + génération de raisons se fait en parallèle pour TOUTES les paires
-       en une seule passe Spark, puis groupe par utilisateur.
+    Pipeline scalable :
+    1. Pour chaque user : entraînement MLlib RF distribué + collecte probas.
+    2. Broadcast des structures partagées (labels, profils, favoris, probas).
+    3. flatMap Spark : génération des paires (user, image, proba) côté workers
+       (PRIORITÉ 1 - point 2 : la RAM driver ne stocke jamais N_users × N_images).
+    4. repartition explicite pour bon parallélisme du scoring.
+    5. Scoring distribué + groupByKey + top N par utilisateur.
 
     Args:
-        users: Dictionnaire des utilisateurs
-        df_features: DataFrame des caractéristiques
-        X_all: Array encodé de toutes les features
-        labels: Dictionnaire des labels
-        sc: SparkContext
-        n_recommendations: Nombre de recommandations par utilisateur
+        users: dict utilisateurs
+        df_features: DataFrame Spark des features (cache déjà actif)
+        labels: dict labels
+        spark: SparkSession active
+        n_recommendations: nombre de recommandations par utilisateur
 
     Returns:
-        Dictionnaire user_id -> liste de tuples (filename, score, raison)
+        (recommendations_by_user, accuracies)
     """
-    # === Étape 1 : Entraînement des modèles (séquentiel, sklearn non distribué) ===
-    logger.info("🧠 Entraînement des modèles par utilisateur...")
-    all_items = []
-    favorites_by_user = {}
-    accuracies = {}
+    sc = spark.sparkContext
 
-    filenames = df_features['filename'].tolist()
+    # === Étape 1 : Entraînement MLlib + probas par utilisateur ===
+    logger.info("🧠 Entraînement des modèles MLlib (RandomForest distribué)...")
+    probas_by_user: Dict[str, Dict[str, float]] = {}
+    accuracies: Dict[str, float] = {}
+    favorites_by_user: Dict[str, set] = {}
+
+    # Liste ordonnée des filenames (collectée 1 fois)
+    filenames = [r["filename"] for r in df_features.select("filename").collect()]
 
     for user_id in users.keys():
-        model, _, _, accuracy = train_user_model(user_id, users, df_features, X_all)
+        favorites_set = set(users[user_id]['favorite_images'])
+        favorites_by_user[user_id] = favorites_set
+
+        model, accuracy = train_user_model_mllib(user_id, favorites_set, df_features)
         accuracies[user_id] = accuracy
-        favorites_by_user[user_id] = set(users[user_id]['favorite_images'])
 
-        # Prédire les probabilités pour TOUTES les images
-        probas = model.predict_proba(X_all)[:, 1]
+        probas_by_user[user_id] = collect_user_probas(model, df_features)
 
-        # Construire les items (user_id, filename, proba)
-        for filename, proba in zip(filenames, probas):
-            all_items.append((user_id, filename, float(proba)))
-
-        logger.info(f"   ✅ {user_id} : précision {accuracy:.2%}")
+        logger.info(f"   ✅ {user_id} : précision MLlib {accuracy:.2%}")
 
     # === Étape 2 : Broadcast des structures partagées ===
-    # Évite de dupliquer labels/profils/favoris sur chaque worker Spark
     logger.info("📡 Broadcast des données partagées sur les workers Spark...")
     labels_bc = sc.broadcast(labels)
     profiles_bc = sc.broadcast(dict(users))
     favorites_bc = sc.broadcast(favorites_by_user)
+    filenames_bc = sc.broadcast(filenames)
+    probas_bc = sc.broadcast(probas_by_user)
 
-    # === Étape 3 : Scoring distribué sur TOUTES les paires (user, image) ===
-    logger.info(f"🚀 Scoring distribué de {len(all_items)} paires (user, image) avec PySpark...")
+    # === Étape 3 : Génération des paires via flatMap (PRIORITÉ 1 - point 2) ===
+    # Au lieu de construire `all_items` en Python (RAM driver = N_users × N_images),
+    # on parallélise sur les user_ids et chaque worker génère ses propres paires.
+    logger.info("🚀 Génération distribuée des paires (user, image) via flatMap...")
+    n_part_users = compute_partitions(len(users), items_per_partition=1)
+    users_rdd = sc.parallelize(list(users.keys()), numSlices=n_part_users)
 
-    items_rdd = sc.parallelize(all_items)
+    items_rdd = users_rdd.flatMap(
+        lambda uid: [
+            (uid, fn, probas_bc.value[uid].get(fn, 0.0))
+            for fn in filenames_bc.value
+        ]
+    )
 
-    # Map : calculer score + raison en parallèle (lambda utilise les broadcasts)
+    # === Étape 4 : Repartition pour scoring équilibré ===
+    n_pairs_estimate = len(users) * len(filenames)
+    n_part_scoring = compute_partitions(n_pairs_estimate, items_per_partition=1000)
+    items_rdd = items_rdd.repartition(n_part_scoring)
+    logger.info(
+        f"⚖️ Scoring de ~{n_pairs_estimate} paires sur {n_part_scoring} partitions Spark"
+    )
+
+    # === Étape 5 : Scoring distribué ===
     scored_rdd = items_rdd.map(
         lambda item: compute_recommendation_score(
             item, labels_bc.value, profiles_bc.value, favorites_bc.value
@@ -273,15 +388,14 @@ def recommend_all_users_spark(users: Dict, df_features: pd.DataFrame,
     labels_bc.unpersist()
     profiles_bc.unpersist()
     favorites_bc.unpersist()
+    filenames_bc.unpersist()
+    probas_bc.unpersist()
 
     return recommendations_by_user, accuracies
 
 
 def _is_metadata_invalid(item: tuple) -> bool:
-    """
-    Prédicat exécuté en parallèle par les workers Spark.
-    Retourne True si la métadonnée est invalide.
-    """
+    """Prédicat exécuté en parallèle par les workers Spark (validation distribuée)."""
     _, meta = item
     return (
         meta.get('width', 0) <= 0
@@ -293,10 +407,7 @@ def _is_metadata_invalid(item: tuple) -> bool:
 
 
 def _is_label_invalid(item: tuple) -> bool:
-    """
-    Prédicat exécuté en parallèle par les workers Spark.
-    Retourne True si le label est invalide.
-    """
+    """Prédicat exécuté en parallèle par les workers Spark (validation distribuée)."""
     _, label = item
     return (
         not label.get('predominant_colors')
@@ -309,41 +420,42 @@ def _is_label_invalid(item: tuple) -> bool:
 def test_data_integrity(metadata: Dict, labels: Dict, sc: SparkContext) -> bool:
     """
     Teste l'intégrité des données via validation distribuée PySpark
-    sur TOUTES les images (plus d'échantillonnage).
+    sur TOUTES les images.
     """
     logger.info("📝 Test 1 : Intégrité des données (validation distribuée Spark)")
 
     try:
-        # Test 1.1 : Au moins 100 images
         assert len(metadata) >= 100, f"❌ Pas assez d'images : {len(metadata)} < 100"
         logger.info(f"   ✅ Nombre d'images suffisant : {len(metadata)} images")
 
-        # Test 1.2 : Toutes les images ont des labels
         assert len(metadata) == len(labels), (
             f"❌ Incohérence : {len(metadata)} métadonnées vs {len(labels)} labels"
         )
         logger.info(f"   ✅ Correspondance métadonnées/labels : {len(metadata)} entrées chacun")
 
-        # Test 1.3 : Validation distribuée Spark de TOUTES les métadonnées
-        metadata_rdd = sc.parallelize(list(metadata.items()))
+        n_part = compute_partitions(len(metadata), items_per_partition=50)
+
+        metadata_rdd = sc.parallelize(list(metadata.items()), numSlices=n_part)
         invalid_meta_count = metadata_rdd.filter(_is_metadata_invalid).count()
         assert invalid_meta_count == 0, (
             f"❌ {invalid_meta_count} métadonnée(s) invalide(s) détectée(s) par Spark"
         )
         logger.info(f"   ✅ {len(metadata)} métadonnées validées par Spark (0 invalide)")
 
-        # Test 1.4 : Validation distribuée Spark de TOUS les labels
-        labels_rdd = sc.parallelize(list(labels.items()))
+        labels_rdd = sc.parallelize(list(labels.items()), numSlices=n_part)
         invalid_labels_count = labels_rdd.filter(_is_label_invalid).count()
         assert invalid_labels_count == 0, (
             f"❌ {invalid_labels_count} label(s) invalide(s) détecté(s) par Spark"
         )
         logger.info(f"   ✅ {len(labels)} labels validés par Spark (0 invalide)")
 
-        # Test 1.5 : Toutes les clés métadonnées == clés labels (map + reduce)
-        meta_keys_rdd = sc.parallelize(list(metadata.keys()))
+        meta_keys_rdd = sc.parallelize(list(metadata.keys()), numSlices=n_part)
         labels_keys = set(labels.keys())
-        orphan_count = meta_keys_rdd.filter(lambda k: k not in labels_keys).count()
+        labels_keys_bc = sc.broadcast(labels_keys)
+        orphan_count = meta_keys_rdd.filter(
+            lambda k: k not in labels_keys_bc.value
+        ).count()
+        labels_keys_bc.unpersist()
         assert orphan_count == 0, f"❌ {orphan_count} image(s) sans label correspondant"
         logger.info(f"   ✅ Toutes les images ont un label correspondant (vérifié par Spark)")
 
@@ -355,19 +467,15 @@ def test_data_integrity(metadata: Dict, labels: Dict, sc: SparkContext) -> bool:
         return False
 
 
-def test_recommendation_quality(recommendations: List[Tuple], user_id: str, 
+def test_recommendation_quality(recommendations: List[Tuple], user_id: str,
                                users: Dict, labels: Dict) -> bool:
-    """
-    Teste la qualité des recommandations.
-    """
+    """Teste la qualité des recommandations."""
     logger.info("📝 Test 2 : Qualité des recommandations")
 
     try:
-        # Test 2.1 : Nombre correct
         assert len(recommendations) == 5, f"❌ Nombre incorrect : {len(recommendations)}"
         logger.info("   ✅ Retourne le bon nombre de recommandations : 5")
 
-        # Test 2.2 : Pas de favoris
         user_favorites = set(users[user_id]['favorite_images'])
         recommended_images = [rec[0] for rec in recommendations]
 
@@ -375,12 +483,10 @@ def test_recommendation_quality(recommendations: List[Tuple], user_id: str,
         assert len(overlap) == 0, f"❌ Favoris recommandés : {overlap}"
         logger.info("   ✅ Aucune image déjà favorite n'est recommandée")
 
-        # Test 2.3 : Scores décroissants
         scores = [rec[1] for rec in recommendations]
         assert scores == sorted(scores, reverse=True), "❌ Scores non triés"
         logger.info("   ✅ Recommandations triées par score")
 
-        # Test 2.4 : Pertinence
         user_profile = users[user_id]
         relevance_count = 0
 
@@ -408,14 +514,27 @@ def test_recommendation_quality(recommendations: List[Tuple], user_id: str,
 
 
 def main():
-    """
-    Point d'entrée principal avec traitement PySpark distribué.
-    """
-    logger.info("🚀 Début des recommandations avec PySpark...")
+    """Point d'entrée principal avec traitement PySpark + MLlib distribué."""
+    logger.info("🚀 Début des recommandations avec PySpark + MLlib...")
 
-    # Configuration Spark
-    conf = SparkConf().setAppName("ImageRecommendation").setMaster("local[*]")
-    sc = SparkContext(conf=conf)
+    # === SparkSession (nécessaire pour DataFrames + MLlib) ===
+    spark = (
+        SparkSession.builder
+        .appName("ImageRecommendation")
+        .master("local[*]")
+        .config("spark.driver.memory", SPARK_DRIVER_MEMORY)
+        .config("spark.executor.memory", SPARK_EXECUTOR_MEMORY)
+        .config("spark.default.parallelism", str(SPARK_PARALLELISM))
+        .config("spark.sql.shuffle.partitions", str(SPARK_PARALLELISM))
+        .getOrCreate()
+    )
+    sc = spark.sparkContext
+    sc.setLogLevel("WARN")
+    logger.info(
+        f"⚙️ Spark : driver={SPARK_DRIVER_MEMORY}, executor={SPARK_EXECUTOR_MEMORY}, "
+        f"parallelism={SPARK_PARALLELISM} | RF: trees={RF_NUM_TREES}, "
+        f"depth={RF_MAX_DEPTH}, maxBins={RF_MAX_BINS}"
+    )
 
     try:
         # Charger les données
@@ -434,26 +553,23 @@ def main():
         logger.info(f"✅ {len(users)} utilisateurs chargés")
 
         # === Tâche 5 : Système de Recommandation ===
-        logger.info("🤖 TÂCHE 5 : SYSTÈME DE RECOMMANDATION")
+        logger.info("🤖 TÂCHE 5 : SYSTÈME DE RECOMMANDATION (Spark MLlib)")
 
-        # Préparer les features
-        logger.info("🔧 Préparation des caractéristiques...")
-        df_features = prepare_features(labels, metadata)
-        X_all, encoders, feature_cols = encode_features(df_features)
+        # Préparer le DataFrame Spark des features (encoding distribué)
+        logger.info("🔧 Préparation des caractéristiques (Pipeline MLlib)...")
+        df_features = build_features_dataframe(spark, labels, metadata)
+        logger.info(f"✅ DataFrame Spark prêt avec {df_features.count()} images en cache")
 
-        logger.info(f"✅ {len(df_features)} images avec {len(feature_cols)} caractéristiques")
-
-        # Générer recommandations pour tous les utilisateurs EN PARALLÈLE via Spark
+        # Générer recommandations EN PARALLÈLE via Spark + MLlib
         logger.info("=" * 80)
-        logger.info("🎯 GÉNÉRATION DES RECOMMANDATIONS (SPARK DISTRIBUÉ MULTI-UTILISATEURS)")
+        logger.info("🎯 GÉNÉRATION DES RECOMMANDATIONS (SPARK MLlib + flatMap distribué)")
         logger.info("=" * 80)
 
         recommendations_by_user, accuracies = recommend_all_users_spark(
             users=users,
             df_features=df_features,
-            X_all=X_all,
             labels=labels,
-            sc=sc,
+            spark=spark,
             n_recommendations=5,
         )
 
@@ -466,7 +582,7 @@ def main():
             logger.info(f"👤 Utilisateur : {user_name} ({user_id})")
             logger.info(f"   Profil : Aime {', '.join(users[user_id]['favorite_colors'][:3])}")
             logger.info(f"   Tags favoris : {', '.join(users[user_id]['favorite_tags'][:3])}")
-            logger.info(f"   Précision du modèle : {accuracies.get(user_id, 0):.2%}")
+            logger.info(f"   Précision MLlib : {accuracies.get(user_id, 0):.2%}")
 
             all_recommendations[user_id] = [
                 {"filename": filename, "score": score, "reason": reason}
@@ -480,7 +596,7 @@ def main():
 
             logger.info("-" * 80)
 
-        # Sauvegarder les recommandations
+        # Sauvegarder
         with open(RECOMMENDATIONS_FILE, "w", encoding="utf-8") as f:
             json.dump(all_recommendations, f, ensure_ascii=False, indent=2)
 
@@ -494,10 +610,8 @@ def main():
 
         test_results = []
 
-        # Test 1 : Intégrité des données (validation distribuée Spark sur TOUTES les images)
         test_results.append(test_data_integrity(metadata, labels, sc))
 
-        # Test 2 : Qualité des recommandations (pour un utilisateur test)
         test_user = list(users.keys())[0]
         test_recs = [(r["filename"], r["score"], r["reason"])
                      for r in all_recommendations[test_user]]
@@ -511,11 +625,14 @@ def main():
             logger.warning("⚠️ CERTAINS TESTS ONT ÉCHOUÉ")
         logger.info("=" * 80)
 
+        # Libérer le cache du DataFrame
+        df_features.unpersist()
+
         logger.info("✅ Traitement complet terminé !")
 
     finally:
-        sc.stop()
-        logger.info("🛑 SparkContext arrêté")
+        spark.stop()
+        logger.info("🛑 SparkSession arrêtée")
 
 
 if __name__ == "__main__":

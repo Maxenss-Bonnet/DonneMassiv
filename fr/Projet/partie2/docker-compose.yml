@@ -8,6 +8,10 @@ services:
     environment:
       - OUTPUT_DIR=/shared_data
       - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY}
+      # Tuning Spark (override possible via .env)
+      - SPARK_PARALLELISM=${SPARK_PARALLELISM:-200}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-2g}
     networks:
       - projet_network
 
@@ -23,6 +27,10 @@ services:
     environment:
       - INPUT_DIR=/shared_data
       - OUTPUT_DIR=/shared_data
+      # Tuning Spark (override possible via .env)
+      - SPARK_PARALLELISM=${SPARK_PARALLELISM:-200}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-2g}
     networks:
       - projet_network
 
@@ -53,6 +61,13 @@ services:
     environment:
       - INPUT_DIR=/shared_data
       - OUTPUT_DIR=/shared_data
+      # Tuning Spark + MLlib (override possible via .env)
+      - SPARK_PARALLELISM=${SPARK_PARALLELISM:-200}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-2g}
+      - RF_NUM_TREES=${RF_NUM_TREES:-100}
+      - RF_MAX_DEPTH=${RF_MAX_DEPTH:-10}
+      - RF_MAX_BINS=${RF_MAX_BINS:-256}
     networks:
       - projet_network
 

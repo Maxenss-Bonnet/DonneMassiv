@@ -1,6 +1,11 @@
 """
 Conteneur 1 : Acquisition de données
 Collecte des images depuis Unsplash API avec traitement distribué via PySpark.
+
+Optimisations scalabilité (Priorité 2) :
+- SparkConf paramétrable via variables d'environnement.
+- `mapPartitions` pour amortir l'overhead de sérialisation.
+- `repartition` explicite (équilibrage des téléchargements).
 """
 
 import os
@@ -9,7 +14,7 @@ import logging
 import sys
 import requests
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Iterator
 from PIL import Image
 from PIL.ExifTags import TAGS
 from pyspark import SparkContext, SparkConf
@@ -29,6 +34,11 @@ OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/shared_data"))
 IMAGES_DIR = OUTPUT_DIR / "images"
 METADATA_FILE = OUTPUT_DIR / "images_metadata.json"
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
+
+# === Configuration Spark (paramétrable via env) ===
+SPARK_PARALLELISM = int(os.getenv("SPARK_PARALLELISM", "200"))
+SPARK_DRIVER_MEMORY = os.getenv("SPARK_DRIVER_MEMORY", "2g")
+SPARK_EXECUTOR_MEMORY = os.getenv("SPARK_EXECUTOR_MEMORY", "2g")
 
 
 def validate_environment() -> None:
@@ -111,18 +121,18 @@ def extract_exif_data(image_path: Path) -> Dict:
         Dictionnaire contenant les données EXIF
     """
     exif_data = {}
-    
+
     try:
         img = Image.open(image_path)
         exif = img._getexif()
-        
+
         if exif:
             for tag_id, value in exif.items():
                 tag = TAGS.get(tag_id, tag_id)
                 exif_data[tag] = str(value)
-    except:
+    except Exception:
         pass
-    
+
     return exif_data
 
 
@@ -194,18 +204,35 @@ def validate_image(item: tuple) -> bool:
     filename, metadata = item
     if filename is None or metadata is None:
         return False
-    
+
     # Vérification stricte
     is_valid = (
-        metadata.get("width", 0) > 0 and 
-        metadata.get("height", 0) > 0 and 
+        metadata.get("width", 0) > 0 and
+        metadata.get("height", 0) > 0 and
         metadata.get("file_size_kb", 0) > 0
     )
-    
+
     if not is_valid:
         logger.warning(f"❌ Validation échouée pour {filename} (dimensions ou poids invalides)")
 
     return is_valid
+
+
+def process_image_partition(items_iter: Iterator[tuple]) -> Iterator[tuple]:
+    """
+    Traite tous les items d'une partition Spark via mapPartitions.
+
+    Avantages vs map() pour des téléchargements réseau :
+    - Amortit l'overhead de sérialisation Python<->JVM par partition.
+    - Permettrait un pool de connexions HTTP réutilisable (extension future).
+    """
+    for item in items_iter:
+        yield process_image(item)
+
+
+def compute_partitions(n_items: int, items_per_partition: int = 10) -> int:
+    """Nombre de partitions équilibré (jamais < 4, jamais > SPARK_PARALLELISM)."""
+    return max(4, min(SPARK_PARALLELISM, max(1, n_items // items_per_partition)))
 
 
 def main():
@@ -214,9 +241,21 @@ def main():
     """
     logger.info("🚀 Début de la collecte d'images avec PySpark...")
 
-    # Configuration Spark
-    conf = SparkConf().setAppName("ImageAcquisition").setMaster("local[*]")
+    # === Configuration Spark optimisée pour la scalabilité ===
+    conf = (
+        SparkConf()
+        .setAppName("ImageAcquisition")
+        .setMaster("local[*]")
+        .set("spark.driver.memory", SPARK_DRIVER_MEMORY)
+        .set("spark.executor.memory", SPARK_EXECUTOR_MEMORY)
+        .set("spark.default.parallelism", str(SPARK_PARALLELISM))
+        .set("spark.sql.shuffle.partitions", str(SPARK_PARALLELISM))
+    )
     sc = SparkContext(conf=conf)
+    logger.info(
+        f"⚙️ Spark : driver={SPARK_DRIVER_MEMORY}, executor={SPARK_EXECUTOR_MEMORY}, "
+        f"parallelism={SPARK_PARALLELISM}"
+    )
 
     try:
         # Diversifier les requêtes pour avoir une collection variée
@@ -233,10 +272,13 @@ def main():
 
         logger.info(f"📥 {len(all_images_data)} images à traiter")
 
-        # Distribuer le traitement des images sur les workers Spark
-        # Map : télécharger et extraire métadonnées en parallèle
-        images_rdd = sc.parallelize(all_images_data)
-        metadata_rdd = images_rdd.map(process_image)
+        # Distribuer le traitement sur les workers Spark
+        # mapPartitions : amortit l'overhead par partition (plus efficace que map à grande échelle)
+        n_partitions = compute_partitions(len(all_images_data), items_per_partition=5)
+        logger.info(f"📦 Téléchargements répartis en {n_partitions} partitions Spark")
+
+        images_rdd = sc.parallelize(all_images_data, numSlices=n_partitions)
+        metadata_rdd = images_rdd.mapPartitions(process_image_partition)
 
         # Validation formelle : Filtrer les images en parallèle avec Spark
         logger.info("🛡️ Validation des données images avec PySpark...")

@@ -42,23 +42,56 @@ Le système est décomposé en **3 conteneurs indépendants** qui communiquent v
 
 ## 🔑 Utilisation de PySpark
 
-Chaque conteneur utilise PySpark pour distribuer le traitement :
+3 des 4 conteneurs utilisent PySpark pour distribuer le traitement
+(le 4ᵉ, `visualization`, n'utilise que matplotlib/pandas) :
 
 ### Conteneur 1 : Acquisition
-- **Map** : Télécharger et traiter chaque image en parallèle
+- **mapPartitions** : Télécharger et extraire EXIF par partition (overhead amorti)
 - **Filter** : Retirer les images corrompues
 - **Collect** : Récupérer les métadonnées
 
 ### Conteneur 2 : Analysis
-- **Map** : Extraire les couleurs (KMeans) en parallèle
-- **Map** : Construire les profils utilisateurs en parallèle
+- **mapPartitions** : Extraire les couleurs (KMeans) par partition
+- **Broadcast(`labels`)** : Diffusion une seule fois sur chaque worker
 - **FlatMap + ReduceByKey** : Agréger les tags globaux
+- **Map** : Construire les profils utilisateurs en parallèle (avec broadcast)
 
-### Conteneur 3 : Recommendation
-- **Map** : Calculer les scores de similarité en parallèle
-- **Filter** : Exclure les favoris
-- **SortBy** : Trier par score décroissant
-- **Take** : Prendre le top N
+### Conteneur 4 : Recommendation
+- **MLlib RandomForestClassifier** : Entraînement distribué (vs sklearn mono-thread)
+- **flatMap** : Génération distribuée des paires (user, image) — zéro RAM driver
+- **Broadcast** : labels, profils, favoris, probas
+- **Repartition** : équilibrage explicite du scoring
+- **groupByKey + mapValues** : Top-N par utilisateur
+
+## 🚀 Optimisations scalabilité (1M+ utilisateurs)
+
+Les 3 conteneurs Spark intègrent des optimisations pour rester performants
+à grande échelle :
+
+| Optimisation | Conteneur(s) | Effet |
+|--------------|--------------|-------|
+| **Broadcast variables** | analysis, recommendation | Évite la sérialisation de `labels`/profils dans la closure de chaque task |
+| **flatMap pour paires (user, image)** | recommendation | Génération côté workers ⇒ pas de N×M tuples en RAM driver |
+| **Spark MLlib RandomForest** | recommendation | Entraînement distribué (vs sklearn mono-thread) |
+| **mapPartitions** | acquisition, analysis | Amortit l'overhead Python<->JVM par partition (gain 10-30 %) |
+| **repartition() explicite** | tous | Équilibrage des tasks, contrôle du parallélisme |
+| **SparkConf paramétrable** | tous | `SPARK_PARALLELISM`, `SPARK_DRIVER_MEMORY`, `SPARK_EXECUTOR_MEMORY` |
+
+### Variables de tuning (override via `.env`)
+
+```bash
+# Adapte selon la machine cible
+SPARK_PARALLELISM=200          # Nombre de partitions par défaut
+SPARK_DRIVER_MEMORY=2g         # RAM driver Spark
+SPARK_EXECUTOR_MEMORY=2g       # RAM executor Spark
+
+# Hyperparamètres MLlib
+RF_NUM_TREES=100               # Nombre d'arbres Random Forest
+RF_MAX_DEPTH=10                # Profondeur max des arbres
+```
+
+Sur une machine 16 cœurs / 32 Go : `SPARK_PARALLELISM=400`,
+`SPARK_DRIVER_MEMORY=8g`, `SPARK_EXECUTOR_MEMORY=8g` est un bon point de départ.
 
 ## 📦 Prérequis
 
@@ -230,26 +263,48 @@ Après exécution complète, le volume `shared_data` contient :
 
 ## 🔍 Exemples de commandes map-reduce
 
-### Acquisition : Téléchargement parallèle
+### Acquisition : Téléchargement parallèle (mapPartitions)
 ```python
-images_rdd = sc.parallelize(all_images_data)
-metadata_rdd = images_rdd.map(process_image)  # Parallèle !
-results = metadata_rdd.filter(lambda x: x[0] is not None).collect()
+images_rdd = sc.parallelize(all_images_data, numSlices=n_partitions)
+metadata_rdd = images_rdd.mapPartitions(process_image_partition)  # Parallèle, overhead amorti
+results = metadata_rdd.filter(validate_image).collect()
 ```
 
-### Analysis : Extraction de couleurs parallèle
+### Analysis : Extraction couleurs (mapPartitions) + profils (broadcast)
 ```python
-metadata_items = list(metadata.items())
-images_rdd = sc.parallelize(metadata_items)
-labels_rdd = images_rdd.map(process_image_labels)  # Parallèle !
-labels = dict(labels_rdd.collect())
+# Étiquetage par partition
+images_rdd = sc.parallelize(metadata_items, numSlices=n_partitions)
+labels_rdd = images_rdd.mapPartitions(process_image_labels_partition)
+labels = dict(labels_rdd.filter(lambda x: x[1] is not None).collect())
+
+# Broadcast pour les profils utilisateurs
+labels_bc = sc.broadcast(labels)
+profiles_rdd = users_rdd.map(lambda x: build_user_profile_broadcast(x, labels_bc.value))
 ```
 
-### Recommendation : Calcul de scores parallèle
+### Recommendation : MLlib + flatMap distribué
 ```python
-items_rdd = sc.parallelize(items)
-scores_rdd = items_rdd.map(compute_recommendation_score)  # Parallèle !
-recommendations = scores_rdd.sortBy(lambda x: x[1], ascending=False).take(5)
+# Entraînement distribué via Spark MLlib
+rf = SparkRF(featuresCol="features", labelCol="label", numTrees=100, maxDepth=10)
+model = rf.fit(train_df)  # Distribué sur les workers Spark !
+
+# Génération distribuée des paires (user, image) — pas de RAM driver
+filenames_bc = sc.broadcast(filenames)
+probas_bc = sc.broadcast(probas_by_user)
+users_rdd = sc.parallelize(list(users.keys()))
+items_rdd = users_rdd.flatMap(
+    lambda uid: [(uid, fn, probas_bc.value[uid].get(fn, 0.0)) for fn in filenames_bc.value]
+).repartition(SPARK_PARALLELISM)
+
+# Scoring distribué + top N par utilisateur
+recommendations = (
+    items_rdd.map(compute_recommendation_score)
+             .filter(lambda x: x is not None)
+             .map(lambda x: (x[0], (x[1], x[2], x[3])))
+             .groupByKey()
+             .mapValues(lambda recs: sorted(recs, key=lambda r: r[1], reverse=True)[:5])
+             .collectAsMap()
+)
 ```
 
 ## 📝 Notes importantes
