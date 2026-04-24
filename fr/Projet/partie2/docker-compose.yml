@@ -26,7 +26,22 @@ services:
     networks:
       - projet_network
 
-  # Conteneur 3 : Recommandation
+  # Conteneur 3 : Visualisation (généré à partir des JSON d'analyse)
+  visualization:
+    build: ./visualization
+    container_name: projet_visualization
+    depends_on:
+      analysis:
+        condition: service_completed_successfully
+    volumes:
+      - shared_data:/shared_data
+    environment:
+      - INPUT_DIR=/shared_data
+      - OUTPUT_DIR=/shared_data
+    networks:
+      - projet_network
+
+  # Conteneur 4 : Recommandation
   recommendation:
     build: ./recommendation
     container_name: projet_recommendation

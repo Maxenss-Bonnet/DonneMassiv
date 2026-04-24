@@ -5,6 +5,8 @@ Collecte des images depuis Unsplash API avec traitement distribué via PySpark.
 
 import os
 import json
+import logging
+import sys
 import requests
 from pathlib import Path
 from typing import List, Dict
@@ -12,17 +14,50 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 from pyspark import SparkContext, SparkConf
 
+
+# === Configuration du logger ===
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] [acquisition] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout,
+)
+logger = logging.getLogger(__name__)
+
 # Configuration
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/shared_data"))
 IMAGES_DIR = OUTPUT_DIR / "images"
 METADATA_FILE = OUTPUT_DIR / "images_metadata.json"
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
 
+
+def validate_environment() -> None:
+    """
+    Valide la présence des variables d'environnement obligatoires.
+    Lève une exception explicite au démarrage plutôt que d'échouer silencieusement
+    lors du premier appel API.
+    """
+    if not UNSPLASH_ACCESS_KEY:
+        raise RuntimeError(
+            "❌ Variable d'environnement UNSPLASH_ACCESS_KEY manquante. "
+            "Définissez-la dans le fichier .env (voir .env.example)."
+        )
+    if not OUTPUT_DIR.parent.exists():
+        raise RuntimeError(
+            f"❌ Le répertoire parent {OUTPUT_DIR.parent} n'existe pas. "
+            "Vérifiez la configuration du volume Docker."
+        )
+    logger.info("✅ Variables d'environnement validées")
+
+
+# Validation au démarrage
+validate_environment()
+
 # Créer les dossiers
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-print(f"📁 Dossier images : {IMAGES_DIR}")
-print(f"📁 Fichier métadonnées : {METADATA_FILE}")
+logger.info(f"📁 Dossier images : {IMAGES_DIR}")
+logger.info(f"📁 Fichier métadonnées : {METADATA_FILE}")
 
 
 def fetch_unsplash_images(query: str, per_page: int = 30, pages: int = 1) -> List[Dict]:
@@ -56,10 +91,10 @@ def fetch_unsplash_images(query: str, per_page: int = 30, pages: int = 1) -> Lis
             data = response.json()
             images_data.extend(data.get("results", []))
             
-            print(f"✅ Query '{query}' - Page {page}/{pages} : {len(data.get('results', []))} images")
-            
+            logger.info(f"✅ Query '{query}' - Page {page}/{pages} : {len(data.get('results', []))} images")
+
         except Exception as e:
-            print(f"❌ Erreur page {page} pour '{query}' : {e}")
+            logger.error(f"❌ Erreur page {page} pour '{query}' : {e}")
             continue
     
     return images_data
@@ -143,11 +178,11 @@ def process_image(item: tuple) -> tuple:
             "exif": exif_data
         }
         
-        print(f"✅ {filename} : {width}x{height}, {file_size_kb:.1f} Ko")
+        logger.info(f"✅ {filename} : {width}x{height}, {file_size_kb:.1f} Ko")
         return (filename, metadata)
-    
+
     except Exception as e:
-        print(f"❌ Erreur traitement {filename} : {e}")
+        logger.error(f"❌ Erreur traitement {filename} : {e}")
         return (None, None)
 
 
@@ -168,8 +203,8 @@ def validate_image(item: tuple) -> bool:
     )
     
     if not is_valid:
-        print(f"❌ Validation échouée pour {filename} (dimensions ou poids invalides)")
-        
+        logger.warning(f"❌ Validation échouée pour {filename} (dimensions ou poids invalides)")
+
     return is_valid
 
 
@@ -177,62 +212,62 @@ def main():
     """
     Point d'entrée principal avec traitement PySpark distribué.
     """
-    print("🚀 Début de la collecte d'images avec PySpark...\n")
-    
+    logger.info("🚀 Début de la collecte d'images avec PySpark...")
+
     # Configuration Spark
     conf = SparkConf().setAppName("ImageAcquisition").setMaster("local[*]")
     sc = SparkContext(conf=conf)
-    
+
     try:
         # Diversifier les requêtes pour avoir une collection variée
         search_queries = ["nature", "architecture", "food", "animals", "technology", "art"]
-        
+
         # Collecter toutes les images depuis l'API
         all_images_data = []
         for query in search_queries:
-            print(f"\n🔍 Recherche : '{query}'")
+            logger.info(f"🔍 Recherche : '{query}'")
             images = fetch_unsplash_images(query, per_page=20, pages=1)
             # Ajouter le query à chaque image pour le traitement
-            all_images_data.extend([(i + 1 + len(all_images_data), img, query) 
+            all_images_data.extend([(i + 1 + len(all_images_data), img, query)
                                     for i, img in enumerate(images)])
-        
-        print(f"\n📥 {len(all_images_data)} images à traiter")
-        
+
+        logger.info(f"📥 {len(all_images_data)} images à traiter")
+
         # Distribuer le traitement des images sur les workers Spark
         # Map : télécharger et extraire métadonnées en parallèle
         images_rdd = sc.parallelize(all_images_data)
         metadata_rdd = images_rdd.map(process_image)
-        
+
         # Validation formelle : Filtrer les images en parallèle avec Spark
-        print("\n🛡️ Validation des données images avec PySpark...")
+        logger.info("🛡️ Validation des données images avec PySpark...")
         valid_rdd = metadata_rdd.filter(validate_image)
-        
+
         # Collect : récupérer tous les résultats valides
         results = valid_rdd.collect()
-        
+
         # Convertir en dictionnaire
         all_metadata = {filename: metadata for filename, metadata in results}
-        
+
         # Sauvegarder les métadonnées
         with open(METADATA_FILE, "w", encoding="utf-8") as f:
             json.dump(all_metadata, f, ensure_ascii=False, indent=2)
-        
-        print(f"\n✅ Collecte terminée : {len(all_metadata)} images téléchargées")
-        print(f"💾 Métadonnées sauvegardées : {METADATA_FILE}")
-        
+
+        logger.info(f"✅ Collecte terminée : {len(all_metadata)} images téléchargées")
+        logger.info(f"💾 Métadonnées sauvegardées : {METADATA_FILE}")
+
         # Statistiques
         if all_metadata:
             total_size = sum(m["file_size_kb"] for m in all_metadata.values())
             avg_width = sum(m["width"] for m in all_metadata.values()) / len(all_metadata)
             avg_height = sum(m["height"] for m in all_metadata.values()) / len(all_metadata)
-            
-            print(f"\n📈 Statistiques :")
-            print(f"  - Taille totale : {total_size:.2f} Ko")
-            print(f"  - Dimensions moyennes : {avg_width:.0f} x {avg_height:.0f} px")
-    
+
+            logger.info("📈 Statistiques :")
+            logger.info(f"  - Taille totale : {total_size:.2f} Ko")
+            logger.info(f"  - Dimensions moyennes : {avg_width:.0f} x {avg_height:.0f} px")
+
     finally:
         sc.stop()
-        print("\n🛑 SparkContext arrêté")
+        logger.info("🛑 SparkContext arrêté")
 
 
 if __name__ == "__main__":

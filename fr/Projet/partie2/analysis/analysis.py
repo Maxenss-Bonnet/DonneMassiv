@@ -1,22 +1,30 @@
 """
 Conteneur 2 : Analyse et Étiquetage
-Étiquetage des images, analyse des utilisateurs et visualisation avec PySpark.
+Étiquetage des images et analyse des profils utilisateurs avec PySpark.
+La génération des visualisations est déléguée au conteneur 'visualization'.
 """
 
 import os
 import json
+import logging
+import sys
 import numpy as np
-import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Tuple
 from PIL import Image
 from collections import Counter
 from pyspark import SparkContext, SparkConf
-import matplotlib
-matplotlib.use('Agg')  # Backend non-interactif pour Docker
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from sklearn.cluster import KMeans
+
+
+# === Configuration du logger ===
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] [analysis] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout,
+)
+logger = logging.getLogger(__name__)
 
 # Configuration
 INPUT_DIR = Path(os.getenv("INPUT_DIR", "/shared_data"))
@@ -25,10 +33,34 @@ IMAGES_DIR = INPUT_DIR / "images"
 METADATA_FILE = INPUT_DIR / "images_metadata.json"
 LABELS_FILE = OUTPUT_DIR / "images_labels.json"
 USERS_FILE = OUTPUT_DIR / "users.json"
-VIZ_FILE = OUTPUT_DIR / "visualisations.png"
 
-print(f"📁 Dossier images : {IMAGES_DIR}")
-print(f"📁 Fichier métadonnées : {METADATA_FILE}")
+
+def validate_environment() -> None:
+    """
+    Valide la présence des entrées requises avant de démarrer Spark.
+    """
+    if not INPUT_DIR.exists():
+        raise RuntimeError(
+            f"❌ INPUT_DIR introuvable : {INPUT_DIR}. "
+            "Le volume Docker partagé n'est pas monté correctement."
+        )
+    if not METADATA_FILE.exists():
+        raise RuntimeError(
+            f"❌ Fichier de métadonnées manquant : {METADATA_FILE}. "
+            "Le conteneur 'acquisition' a-t-il bien terminé avec succès ?"
+        )
+    if not IMAGES_DIR.exists():
+        raise RuntimeError(
+            f"❌ Dossier images manquant : {IMAGES_DIR}."
+        )
+    logger.info("✅ Variables d'environnement validées")
+
+
+# Validation au démarrage
+validate_environment()
+
+logger.info(f"📁 Dossier images : {IMAGES_DIR}")
+logger.info(f"📁 Fichier métadonnées : {METADATA_FILE}")
 
 
 def rgb_to_name(rgb: Tuple[int, int, int]) -> str:
@@ -95,7 +127,7 @@ def extract_dominant_colors(image_path: Path, n_colors: int = 5) -> List[List[in
         return colors
     
     except Exception as e:
-        print(f"❌ Erreur extraction couleurs {image_path.name} : {e}")
+        logger.error(f"❌ Erreur extraction couleurs {image_path.name} : {e}")
         return [[128, 128, 128]]
 
 
@@ -166,11 +198,11 @@ def process_image_labels(item: tuple) -> tuple:
             "tags": list(set(tags))
         }
         
-        print(f"✅ {filename} : {len(dominant_colors)} couleurs, {orientation}, {size_category}")
+        logger.info(f"✅ {filename} : {len(dominant_colors)} couleurs, {orientation}, {size_category}")
         return (filename, labels_dict)
-    
+
     except Exception as e:
-        print(f"❌ Erreur traitement {filename} : {e}")
+        logger.error(f"❌ Erreur traitement {filename} : {e}")
         return (filename, None)
 
 
@@ -224,175 +256,49 @@ def build_user_profile(user_item: tuple) -> tuple:
     return (user_id, profile)
 
 
-def create_visualizations(metadata: Dict, labels: Dict, users: Dict):
-    """
-    Crée les visualisations avec matplotlib.
-    """
-    df_meta = pd.DataFrame(metadata).T
-    df_labels = pd.DataFrame(labels).T
-    
-    plt.rcParams['figure.figsize'] = (12, 8)
-    plt.rcParams['font.size'] = 10
-    
-    fig = plt.figure(figsize=(18, 12))
-    
-    # 1. Distribution par orientation
-    ax1 = plt.subplot(3, 3, 1)
-    orientation_counts = df_labels['orientation'].value_counts()
-    ax1.bar(orientation_counts.index, orientation_counts.values, color=['#3498db', '#e74c3c', '#2ecc71'])
-    ax1.set_title('Distribution par Orientation', fontsize=12, fontweight='bold')
-    ax1.set_ylabel("Nombre d'images")
-    ax1.grid(axis='y', alpha=0.3)
-    
-    # 2. Distribution par catégorie de taille
-    ax2 = plt.subplot(3, 3, 2)
-    size_counts = df_labels['size_category'].value_counts()
-    ax2.bar(size_counts.index, size_counts.values, color=['#f39c12', '#9b59b6', '#1abc9c'])
-    ax2.set_title('Distribution par Catégorie de Taille', fontsize=12, fontweight='bold')
-    ax2.set_ylabel("Nombre d'images")
-    ax2.grid(axis='y', alpha=0.3)
-    
-    # 3. Distribution des formats
-    ax3 = plt.subplot(3, 3, 3)
-    format_counts = df_meta['format'].value_counts()
-    colors_pie = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12']
-    ax3.pie(format_counts.values, labels=format_counts.index, autopct='%1.1f%%', 
-            colors=colors_pie[:len(format_counts)], startangle=90)
-    ax3.set_title('Distribution des Formats', fontsize=12, fontweight='bold')
-    
-    # 4. Top 10 couleurs
-    ax4 = plt.subplot(3, 3, 4)
-    all_colors = []
-    for colors_list in df_labels['color_names']:
-        all_colors.extend(colors_list)
-    color_freq = Counter(all_colors)
-    top_colors = color_freq.most_common(10)
-    ax4.barh([c[0] for c in top_colors], [c[1] for c in top_colors], color='#3498db')
-    ax4.set_title('Top 10 Couleurs Prédominantes', fontsize=12, fontweight='bold')
-    ax4.set_xlabel('Fréquence')
-    ax4.grid(axis='x', alpha=0.3)
-    
-    # 5. Top 10 tags
-    ax5 = plt.subplot(3, 3, 5)
-    all_tags = []
-    for tags_list in df_labels['tags']:
-        all_tags.extend(tags_list)
-    tag_freq = Counter(all_tags)
-    top_tags = tag_freq.most_common(10)
-    ax5.barh([t[0] for t in top_tags], [t[1] for t in top_tags], color='#e74c3c')
-    ax5.set_title('Top 10 Tags', fontsize=12, fontweight='bold')
-    ax5.set_xlabel('Fréquence')
-    ax5.grid(axis='x', alpha=0.3)
-    
-    # 6. Distribution taille fichiers
-    ax6 = plt.subplot(3, 3, 6)
-    ax6.hist(df_meta['file_size_kb'], bins=30, color='#9b59b6', edgecolor='black', alpha=0.7)
-    ax6.set_title('Distribution de la Taille des Fichiers', fontsize=12, fontweight='bold')
-    ax6.set_xlabel('Taille (Ko)')
-    ax6.set_ylabel('Fréquence')
-    ax6.grid(axis='y', alpha=0.3)
-    
-    # 7. Palettes de couleurs
-    ax7 = plt.subplot(3, 3, 7)
-    sample_images = list(labels.keys())[:10]
-    y_pos = 0
-    for img in sample_images:
-        colors = labels[img]['predominant_colors']
-        for i, color in enumerate(colors[:5]):
-            rect = patches.Rectangle((i, y_pos), 1, 0.8, 
-                                     facecolor=np.array(color)/255, edgecolor='black', linewidth=0.5)
-            ax7.add_patch(rect)
-        y_pos += 1
-    
-    ax7.set_xlim(0, 5)
-    ax7.set_ylim(0, len(sample_images))
-    ax7.set_aspect('equal')
-    ax7.set_title('Palettes de Couleurs (10 images)', fontsize=12, fontweight='bold')
-    ax7.set_yticks(np.arange(len(sample_images)) + 0.4)
-    ax7.set_yticklabels([img.replace('image_', 'img_').replace('.jpg', '') for img in sample_images])
-    ax7.set_xticks([])
-    
-    # 8. Couleurs préférées par utilisateur
-    ax8 = plt.subplot(3, 3, 8)
-    user_names = [u['name'][:15] for u in users.values()]
-    user_color_counts = {}
-    
-    for user in users.values():
-        for color in user['favorite_colors']:
-            if color not in user_color_counts:
-                user_color_counts[color] = []
-            user_color_counts[color].append(user['name'][:15])
-    
-    bottom = np.zeros(len(user_names))
-    colors_to_plot = list(user_color_counts.keys())[:5]
-    
-    for color in colors_to_plot:
-        values = [user_color_counts[color].count(name) for name in user_names]
-        ax8.bar(user_names, values, bottom=bottom, label=color, alpha=0.8)
-        bottom += values
-    
-    ax8.set_title('Couleurs Préférées par Utilisateur', fontsize=12, fontweight='bold')
-    ax8.set_ylabel('Nombre de couleurs favorites')
-    ax8.legend(loc='upper right', fontsize=8)
-    ax8.tick_params(axis='x', rotation=45)
-    plt.setp(ax8.xaxis.get_majorticklabels(), rotation=45, ha='right')
-    
-    # 9. Largeur vs Hauteur
-    ax9 = plt.subplot(3, 3, 9)
-    ax9.scatter(df_meta['width'], df_meta['height'], alpha=0.5, c='#2ecc71', s=50)
-    ax9.set_title('Distribution Largeur vs Hauteur', fontsize=12, fontweight='bold')
-    ax9.set_xlabel('Largeur (px)')
-    ax9.set_ylabel('Hauteur (px)')
-    ax9.grid(alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(VIZ_FILE, dpi=150, bbox_inches='tight')
-    
-    print(f"💾 Visualisations sauvegardées : {VIZ_FILE}")
-
-
 def main():
     """
     Point d'entrée principal avec traitement PySpark distribué.
+    La visualisation (Tâche 4) est déléguée au conteneur 'visualization'.
     """
-    print("🚀 Début de l'analyse avec PySpark...\n")
-    
+    logger.info("🚀 Début de l'analyse avec PySpark...")
+
     # Configuration Spark
     conf = SparkConf().setAppName("ImageAnalysis").setMaster("local[*]")
     sc = SparkContext(conf=conf)
-    
+
     try:
         # === Tâche 2 : Étiquetage ===
-        print("\n🏷️ TÂCHE 2 : ÉTIQUETAGE\n")
-        
+        logger.info("🏷️ TÂCHE 2 : ÉTIQUETAGE")
+
         # Charger les métadonnées
         with open(METADATA_FILE, "r", encoding="utf-8") as f:
             metadata = json.load(f)
-        
+
         # Distribuer l'étiquetage sur les workers Spark
         # Map : traiter chaque image en parallèle
         metadata_items = list(metadata.items())
         images_rdd = sc.parallelize(metadata_items)
         labels_rdd = images_rdd.map(process_image_labels)
-        
+
         # Filter : retirer les échecs
         successful_labels_rdd = labels_rdd.filter(lambda x: x[1] is not None)
-        
+
         # Collect : récupérer les résultats
         labels_list = successful_labels_rdd.collect()
         labels = {filename: label_data for filename, label_data in labels_list}
-        
+
         # Sauvegarder
         with open(LABELS_FILE, "w", encoding="utf-8") as f:
             json.dump(labels, f, ensure_ascii=False, indent=2)
-        
-        print(f"\n✅ Étiquetage terminé : {len(labels)} images annotées")
-        print(f"💾 Labels sauvegardés : {LABELS_FILE}")
-        
+
+        logger.info(f"✅ Étiquetage terminé : {len(labels)} images annotées")
+        logger.info(f"💾 Labels sauvegardés : {LABELS_FILE}")
+
         # === Analyse des tags globaux : FlatMap + ReduceByKey ===
         # FlatMap : aplatit les listes de tags de chaque image en paires (tag, 1)
         # ReduceByKey : agrège pour compter les occurrences par tag
-        print("\n🏷️ Analyse des tags globaux (flatMap + reduceByKey)...")
+        logger.info("🏷️ Analyse des tags globaux (flatMap + reduceByKey)...")
         tags_rdd = sc.parallelize(list(labels.values()))
         tag_counts_rdd = (
             tags_rdd
@@ -402,16 +308,16 @@ def main():
             .sortBy(lambda x: x[1], ascending=False)
         )
         top_tags = tag_counts_rdd.take(10)
-        print("📊 Top 10 tags les plus fréquents :")
+        logger.info("📊 Top 10 tags les plus fréquents :")
         for tag, count in top_tags:
-            print(f"   - {tag} : {count}")
-        
+            logger.info(f"   - {tag} : {count}")
+
         # === Tâche 3 : Analyse ===
-        print("\n👥 TÂCHE 3 : ANALYSE DES UTILISATEURS\n")
-        
+        logger.info("👥 TÂCHE 3 : ANALYSE DES UTILISATEURS")
+
         # Créer utilisateurs simulés
         all_images = list(labels.keys())
-        
+
         user_preferences = [
             {"name": "Amoureux de la nature", "preferred_tags": ["nature", "animals"]},
             {"name": "Fan d'architecture", "preferred_tags": ["architecture", "technology"]},
@@ -419,11 +325,11 @@ def main():
             {"name": "Artiste", "preferred_tags": ["art"]},
             {"name": "Éclectique", "preferred_tags": []},
         ]
-        
+
         users_raw = {}
         for i, prefs in enumerate(user_preferences):
             user_id = f"user_{i+1:03d}"
-            
+
             # Sélectionner favoris
             if prefs["preferred_tags"]:
                 matching_images = [
@@ -439,47 +345,42 @@ def main():
             else:
                 n_favs = np.random.randint(10, 21)
                 favorites = np.random.choice(all_images, n_favs, replace=False).tolist()
-            
+
             users_raw[user_id] = {
                 "user_id": user_id,
                 "name": prefs["name"],
                 "favorite_images": favorites
             }
-        
+
         # Distribuer la construction des profils sur Spark
         # Map : construire chaque profil en parallèle
         users_items = [(uid, udata, labels) for uid, udata in users_raw.items()]
         users_rdd = sc.parallelize(users_items)
         profiles_rdd = users_rdd.map(build_user_profile)
-        
+
         # Collect
         profiles_list = profiles_rdd.collect()
         users = {user_id: profile for user_id, profile in profiles_list}
-        
+
         # Sauvegarder
         with open(USERS_FILE, "w", encoding="utf-8") as f:
             json.dump(users, f, ensure_ascii=False, indent=2)
-        
-        print(f"\n✅ {len(users)} profils utilisateurs créés")
-        print(f"💾 Profils sauvegardés : {USERS_FILE}")
-        
+
+        logger.info(f"✅ {len(users)} profils utilisateurs créés")
+        logger.info(f"💾 Profils sauvegardés : {USERS_FILE}")
+
         # Afficher profils
         for user_id, profile in users.items():
-            print(f"\n  👤 {user_id} ({profile['name']}) :")
-            print(f"     - Couleurs : {profile['favorite_colors']}")
-            print(f"     - Orientation : {profile['favorite_orientation']}")
-            print(f"     - Tags : {profile['favorite_tags']}")
-        
-        # === Tâche 4 : Visualisation ===
-        print("\n📊 TÂCHE 4 : VISUALISATION\n")
-        
-        create_visualizations(metadata, labels, users)
-        
-        print("\n✅ Analyse complète terminée !")
-    
+            logger.info(f"👤 {user_id} ({profile['name']})")
+            logger.info(f"   - Couleurs : {profile['favorite_colors']}")
+            logger.info(f"   - Orientation : {profile['favorite_orientation']}")
+            logger.info(f"   - Tags : {profile['favorite_tags']}")
+
+        logger.info("✅ Analyse complète terminée — visualisation déléguée au conteneur 'visualization'")
+
     finally:
         sc.stop()
-        print("\n🛑 SparkContext arrêté")
+        logger.info("🛑 SparkContext arrêté")
 
 
 if __name__ == "__main__":
