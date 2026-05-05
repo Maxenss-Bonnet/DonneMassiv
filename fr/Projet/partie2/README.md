@@ -4,11 +4,12 @@
 
 Cette partie transforme le notebook monolithique de la partie 1 en une **application distribuée et conteneurisée** utilisant Docker et PySpark.
 
-Le système est décomposé en **3 conteneurs indépendants** qui communiquent via un volume Docker partagé :
+Le système est décomposé en **4 conteneurs indépendants** qui communiquent via un volume Docker partagé :
 
-1. **Conteneur Acquisition** : Collecte des images depuis Unsplash API avec traitement parallèle
-2. **Conteneur Analysis** : Étiquetage des images, analyse des utilisateurs et visualisation
-3. **Conteneur Recommendation** : Système de recommandation et tests
+1. **Conteneur Acquisition** : Collecte des images depuis Unsplash API avec traitement parallèle (PySpark)
+2. **Conteneur Analysis** : Étiquetage des images et analyse des profils utilisateurs (PySpark)
+3. **Conteneur Visualization** : Génération des graphiques statistiques (matplotlib/pandas)
+4. **Conteneur Recommendation** : Système de recommandation distribué (PySpark + MLlib) et tests
 
 ## 🏗️ Architecture
 
@@ -57,9 +58,12 @@ Le système est décomposé en **3 conteneurs indépendants** qui communiquent v
 - **Map** : Construire les profils utilisateurs en parallèle (avec broadcast)
 
 ### Conteneur 4 : Recommendation
-- **MLlib RandomForestClassifier** : Entraînement distribué (vs sklearn mono-thread)
-- **flatMap** : Génération distribuée des paires (user, image) — zéro RAM driver
-- **Broadcast** : labels, profils, favoris, probas
+- **Modèle global MLlib** : 1 seul Random Forest sur (user × image) → favori
+  (au lieu de N modèles par user — vrai scaling vers 1M+ utilisateurs)
+- **Cross-join Spark** : génération distribuée des paires (user, image)
+- **Negative sampling** : équilibrage des classes (favoris rares ~10 %)
+- **1 seul `model.transform()`** distribué pour TOUS les utilisateurs
+- **Broadcast** : favoris, labels, profils utilisateurs
 - **Repartition** : équilibrage explicite du scoring
 - **groupByKey + mapValues** : Top-N par utilisateur
 
@@ -71,8 +75,9 @@ Les 3 conteneurs Spark intègrent des optimisations pour rester performants
 | Optimisation | Conteneur(s) | Effet |
 |--------------|--------------|-------|
 | **Broadcast variables** | analysis, recommendation | Évite la sérialisation de `labels`/profils dans la closure de chaque task |
-| **flatMap pour paires (user, image)** | recommendation | Génération côté workers ⇒ pas de N×M tuples en RAM driver |
-| **Spark MLlib RandomForest** | recommendation | Entraînement distribué (vs sklearn mono-thread) |
+| **Modèle global MLlib** | recommendation | 1 seul `fit()` au lieu de N — scaling linéaire en lignes, pas en utilisateurs |
+| **Cross-join Spark** | recommendation | Génération distribuée des paires (user, image) — zéro RAM driver |
+| **Negative sampling** | recommendation | Équilibrage des classes (favoris rares) — évite le biais "tout-zéro" |
 | **mapPartitions** | acquisition, analysis | Amortit l'overhead Python<->JVM par partition (gain 10-30 %) |
 | **repartition() explicite** | tous | Équilibrage des tasks, contrôle du parallélisme |
 | **SparkConf paramétrable** | tous | `SPARK_PARALLELISM`, `SPARK_DRIVER_MEMORY`, `SPARK_EXECUTOR_MEMORY` |
@@ -88,6 +93,7 @@ SPARK_EXECUTOR_MEMORY=2g       # RAM executor Spark
 # Hyperparamètres MLlib
 RF_NUM_TREES=100               # Nombre d'arbres Random Forest
 RF_MAX_DEPTH=10                # Profondeur max des arbres
+NEG_POS_RATIO=3                # Ratio négatifs/positifs (negative sampling)
 ```
 
 Sur une machine 16 cœurs / 32 Go : `SPARK_PARALLELISM=400`,
@@ -188,17 +194,22 @@ partie2/
 ├── acquisition/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── acquisition.py          # Script avec PySpark
+│   └── acquisition.py          # Script avec PySpark (mapPartitions, filter)
 │
 ├── analysis/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── analysis.py             # Script avec PySpark
+│   └── analysis.py             # Script avec PySpark (broadcast, flatMap, reduceByKey)
+│
+├── visualization/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── visualization.py        # Script matplotlib/pandas (graphiques)
 │
 └── recommendation/
     ├── Dockerfile
     ├── requirements.txt
-    └── recommendation.py       # Script avec PySpark
+    └── recommendation.py       # Script avec PySpark + MLlib (RandomForest distribué)
 ```
 
 ## 🧪 Tests
@@ -282,28 +293,30 @@ labels_bc = sc.broadcast(labels)
 profiles_rdd = users_rdd.map(lambda x: build_user_profile_broadcast(x, labels_bc.value))
 ```
 
-### Recommendation : MLlib + flatMap distribué
+### Recommendation : Modèle global MLlib + crossJoin distribué
 ```python
-# Entraînement distribué via Spark MLlib
-rf = SparkRF(featuresCol="features", labelCol="label", numTrees=100, maxDepth=10)
-model = rf.fit(train_df)  # Distribué sur les workers Spark !
+# 1. Cross-join distribué : génération de toutes les paires (user, image)
+all_pairs = users_df.crossJoin(images_df)
 
-# Génération distribuée des paires (user, image) — pas de RAM driver
-filenames_bc = sc.broadcast(filenames)
-probas_bc = sc.broadcast(probas_by_user)
-users_rdd = sc.parallelize(list(users.keys()))
-items_rdd = users_rdd.flatMap(
-    lambda uid: [(uid, fn, probas_bc.value[uid].get(fn, 0.0)) for fn in filenames_bc.value]
-).repartition(SPARK_PARALLELISM)
+# 2. Labellisation distribuée + negative sampling pour équilibrer les classes
+labeled = all_pairs.withColumn('label', label_udf(col('user_id'), col('filename')))
+pos_df = labeled.filter(col('label') == 1)
+neg_sampled = labeled.filter(col('label') == 0).sample(False, sample_ratio, seed=42)
+training_df = pos_df.union(neg_sampled)
 
-# Scoring distribué + top N par utilisateur
+# 3. UN SEUL fit() global (au lieu de N pour N utilisateurs)
+pipeline = Pipeline(stages=indexers + [assembler, rf])
+model = pipeline.fit(training_df)  # 1 modèle pour TOUS les users !
+
+# 4. UN SEUL transform() global sur toutes les paires candidates
+predictions = model.transform(candidates_df)
+
+# 5. groupByKey + mapValues → top-N par utilisateur (distribué)
 recommendations = (
-    items_rdd.map(compute_recommendation_score)
-             .filter(lambda x: x is not None)
-             .map(lambda x: (x[0], (x[1], x[2], x[3])))
-             .groupByKey()
-             .mapValues(lambda recs: sorted(recs, key=lambda r: r[1], reverse=True)[:5])
-             .collectAsMap()
+    predictions.rdd.map(build_recommendation)
+               .groupByKey()
+               .mapValues(lambda recs: sorted(recs, key=lambda r: r[1], reverse=True)[:5])
+               .collectAsMap()
 )
 ```
 

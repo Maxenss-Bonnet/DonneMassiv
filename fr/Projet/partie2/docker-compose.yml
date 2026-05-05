@@ -68,6 +68,7 @@ services:
       - RF_NUM_TREES=${RF_NUM_TREES:-100}
       - RF_MAX_DEPTH=${RF_MAX_DEPTH:-10}
       - RF_MAX_BINS=${RF_MAX_BINS:-256}
+      - NEG_POS_RATIO=${NEG_POS_RATIO:-3}
     networks:
       - projet_network
 
